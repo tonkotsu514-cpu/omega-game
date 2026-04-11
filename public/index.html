@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>オメガストライカーズ風</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #1a1a2e; display: flex; flex-direction: column; align-items: center; padding: 16px; font-family: sans-serif; }
+canvas { display: block; border-radius: 8px; cursor: crosshair; width: 100%; max-width: 640px; }
+#ui { padding: 8px 0; display: flex; gap: 12px; align-items: center; width: 100%; max-width: 640px; }
+#score { font-size: 22px; font-weight: 500; color: #fff; flex: 1; text-align: center; }
+.info { font-size: 13px; color: #aaa; }
+#msg { font-size: 13px; color: #aaa; text-align: center; margin: 4px 0; }
+#connection { font-size: 12px; color: #888; text-align: center; margin: 2px 0; }
+</style>
+</head>
+<body>
+
+<div id="msg">WASDで移動　コアの近くでクリックした方向に蹴るにゃ</div>
+<div id="connection">接続中...</div>
+<div id="ui">
+  <span class="info">青チーム</span>
+  <div id="score">0 - 0</div>
+  <span class="info">赤チーム</span>
+</div>
+<canvas id="c"></canvas>
+
+<!-- ① まずSocket.ioを読み込む -->
+<script src="/socket.io/socket.io.js"></script>
+
+<!-- ② ゲームコード（IIFEなし、全部グローバルスコープ） -->
+<script>
+var W = 640, H = 400;
+var GOAL_W = 18, GOAL_H = 180;
+var CORE_R = 14, PLAYER_R = 18;
+var FRICTION = 0.992;
+var KICK_FORCE = 5.1;
+var PLAYER_SPEED = 2.4;
+var KICK_RANGE = PLAYER_R + CORE_R + 20;
+
+var score = [0, 0];
+var keys = {};
+var goalFlash = 0, goalTeam = -1;
+var mouseX = W/2, mouseY = H/2;
+var core, players;
+
+// IIFEの外に出したのでSocket.ioハンドラーからも見える
+var remotePlayers = {};
+var isHost = false;
+
+var canvas = document.getElementById('c');
+var ctx = canvas.getContext('2d');
+canvas.width = W;
+canvas.height = H;
+
+function makeCore() { return { x: W/2, y: H/2, vx: 0, vy: 0 }; }
+
+function makePlayers() {
+  return [
+    { x: 160, y: H/2, vx:0, vy:0, color:'#4a9fd4', team:0, isPlayer:true },
+    { x: W-160, y: H/2, vx:0, vy:0, color:'#e05a5a', team:1, isPlayer:false }
+  ];
+}
+
+function reset() {
+  core = makeCore();
+  core.vx = (Math.random()-0.5)*1.65;
+  core.vy = (Math.random()-0.5)*1.65;
+  players = makePlayers();
+}
+
+document.addEventListener('keydown', function(e) {
+  keys[e.key.toLowerCase()] = true;
+  var nav = ['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright'];
+  if (nav.indexOf(e.key.toLowerCase()) >= 0) e.preventDefault();
+});
+document.addEventListener('keyup', function(e) { keys[e.key.toLowerCase()] = false; });
+
+canvas.addEventListener('mousemove', function(e) {
+  var rect = canvas.getBoundingClientRect();
+  var scaleX = W / rect.width;
+  mouseX = (e.clientX - rect.left) * scaleX;
+  mouseY = (e.clientY - rect.top) * scaleX;
+});
+
+canvas.addEventListener('click', function(e) {
+  var rect = canvas.getBoundingClientRect();
+  var scaleX = W / rect.width;
+  var cx = (e.clientX - rect.left) * scaleX;
+  var cy = (e.clientY - rect.top) * scaleX;
+  var p = players[0];
+  var d = Math.hypot(p.x - core.x, p.y - core.y);
+  if (d < KICK_RANGE) {
+    var dx = cx - core.x, dy = cy - core.y;
+    var len = Math.hypot(dx, dy) || 1;
+    core.vx = (dx/len) * KICK_FORCE;
+    core.vy = (dy/len) * KICK_FORCE;
+    // サーバーにキック情報を送信
+    socket.emit('coreKick', { vx: core.vx, vy: core.vy });
+  }
+});
+
+function dist(a, b) { return Math.hypot(a.x-b.x, a.y-b.y); }
+
+function aiMove(ai) {
+  var tx = core.x + 70, ty = core.y;
+  var dx = tx-ai.x, dy = ty-ai.y;
+  var d = Math.hypot(dx,dy);
+  if (d > 4) { ai.vx += (dx/d)*0.35; ai.vy += (dy/d)*0.35; }
+  var spd = Math.hypot(ai.vx, ai.vy);
+  if (spd > PLAYER_SPEED) { ai.vx = ai.vx/spd*PLAYER_SPEED; ai.vy = ai.vy/spd*PLAYER_SPEED; }
+  var dd = dist(ai, core);
+  if (dd < KICK_RANGE && Math.random() < 0.02) {
+    var nx = W*0.05 - core.x, ny = H/2 - core.y;
+    var len = Math.hypot(nx,ny)||1;
+    core.vx = (nx/len)*KICK_FORCE;
+    core.vy = (ny/len)*KICK_FORCE;
+  }
+}
+
+function updatePlayer(p) {
+  if (p.isPlayer) {
+    if (keys['w']||keys['arrowup'])    p.vy -= PLAYER_SPEED;
+    if (keys['s']||keys['arrowdown'])  p.vy += PLAYER_SPEED;
+    if (keys['a']||keys['arrowleft'])  p.vx -= PLAYER_SPEED;
+    if (keys['d']||keys['arrowright']) p.vx += PLAYER_SPEED;
+    var spd = Math.hypot(p.vx, p.vy);
+    if (spd > PLAYER_SPEED) { p.vx = p.vx/spd*PLAYER_SPEED; p.vy = p.vy/spd*PLAYER_SPEED; }
+  } else {
+    aiMove(p);
+  }
+  p.vx *= 0.75; p.vy *= 0.75;
+  p.x += p.vx; p.y += p.vy;
+  p.x = Math.max(PLAYER_R, Math.min(W-PLAYER_R, p.x));
+  p.y = Math.max(PLAYER_R, Math.min(H-PLAYER_R, p.y));
+}
+
+function updateCore() {
+  core.vx *= FRICTION; core.vy *= FRICTION;
+  core.x += core.vx; core.y += core.vy;
+
+  if (core.y - CORE_R < 0) { core.y = CORE_R; core.vy *= -0.8; }
+  if (core.y + CORE_R > H) { core.y = H-CORE_R; core.vy *= -0.8; }
+
+  var gT = (H-GOAL_H)/2, gB = gT+GOAL_H;
+
+  if (core.x - CORE_R < GOAL_W) {
+    if (core.y > gT && core.y < gB) {
+      score[1]++; goalFlash=90; goalTeam=1;
+      document.getElementById('score').textContent = score[0]+' - '+score[1];
+      reset(); return;
+    } else { core.x = CORE_R+GOAL_W; core.vx *= -0.8; }
+  }
+  if (core.x + CORE_R > W-GOAL_W) {
+    if (core.y > gT && core.y < gB) {
+      score[0]++; goalFlash=90; goalTeam=0;
+      document.getElementById('score').textContent = score[0]+' - '+score[1];
+      reset(); return;
+    } else { core.x = W-CORE_R-GOAL_W; core.vx *= -0.8; }
+  }
+}
+
+function drawField() {
+  ctx.fillStyle = '#3d6fa3';
+  ctx.fillRect(0,0,W,H);
+  ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(2,2,W-4,H-4);
+  ctx.beginPath(); ctx.moveTo(W/2,0); ctx.lineTo(W/2,H); ctx.stroke();
+  ctx.beginPath(); ctx.arc(W/2,H/2,60,0,Math.PI*2); ctx.stroke();
+
+  var gT = (H-GOAL_H)/2;
+  ctx.fillStyle = 'rgba(74,159,212,0.3)';
+  ctx.fillRect(0, gT, GOAL_W, GOAL_H);
+  ctx.fillStyle = 'rgba(224,90,90,0.3)';
+  ctx.fillRect(W-GOAL_W, gT, GOAL_W, GOAL_H);
+  ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(0, gT, GOAL_W, GOAL_H);
+  ctx.strokeRect(W-GOAL_W, gT, GOAL_W, GOAL_H);
+
+  if (goalFlash > 0) {
+    ctx.fillStyle = goalTeam===0
+      ? 'rgba(74,159,212,'+(goalFlash/90*0.35)+')'
+      : 'rgba(224,90,90,'+(goalFlash/90*0.35)+')';
+    ctx.fillRect(0,0,W,H);
+    goalFlash--;
+  }
+}
+
+function drawCore() {
+  ctx.beginPath();
+  ctx.arc(core.x, core.y, CORE_R, 0, Math.PI*2);
+  ctx.fillStyle = '#ffe033';
+  ctx.fill();
+  ctx.strokeStyle = '#c8a800';
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+}
+
+function drawPlayer(p) {
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, PLAYER_R, 0, Math.PI*2);
+  ctx.fillStyle = p.color;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  if (p.isPlayer) {
+    var d = dist(p, core);
+    if (d < KICK_RANGE) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, PLAYER_R+5, 0, Math.PI*2);
+      ctx.strokeStyle = 'rgba(255,255,100,0.9)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.save();
+      ctx.setLineDash([4,4]);
+      ctx.beginPath();
+      ctx.moveTo(core.x, core.y);
+      ctx.lineTo(mouseX, mouseY);
+      ctx.strokeStyle = 'rgba(255,255,100,0.55)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+}
+
+function drawRemotePlayers() {
+  Object.keys(remotePlayers).forEach(function(id) {
+    var rp = remotePlayers[id];
+    ctx.beginPath();
+    ctx.arc(rp.x, rp.y, PLAYER_R, 0, Math.PI*2);
+    ctx.fillStyle = '#aaaaaa';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  });
+}
+
+function loop() {
+  players.forEach(updatePlayer);
+  updateCore();
+
+  // ③ socketが存在する場合のみ送信（接続前にエラーにならないよう guard）
+  if (typeof socket !== 'undefined' && socket.connected) {
+    socket.emit('playerMove', { x: players[0].x, y: players[0].y });
+  if (isHost) socket.emit('coreSync', { x: core.x, y: core.y, vx: core.vx, vy: core.vy });
+  }
+
+  drawField();
+  drawRemotePlayers();
+  players.forEach(drawPlayer);
+  drawCore();
+  requestAnimationFrame(loop);
+}
+
+reset();
+loop();
+
+// ④ Socket.io接続（socket.io.jsが読み込まれた後なので安全）
+var socket = io();
+
+socket.on('connect', function() {
+  document.getElementById('connection').textContent = '接続済み: ' + socket.id;
+});
+
+socket.on('disconnect', function() {
+  document.getElementById('connection').textContent = '切断されました';
+});
+
+socket.on('init', function(state) {
+isHost = Object.keys(state.players).length === 1;
+  Object.keys(state.players).forEach(function(id) {
+    if (id !== socket.id) remotePlayers[id] = state.players[id];
+  });
+});
+socket.on('becomeHost', function() {
+  isHost = true;
+});
+
+socket.on('coreSynced', function(data) {
+  if (!isHost) {
+    core.x = data.x; core.y = data.y;
+    core.vx = data.vx; core.vy = data.vy;
+  }
+});
+
+socket.on('playerJoined', function(data) {
+  remotePlayers[data.id] = data.data;
+});
+
+socket.on('playerLeft', function(id) {
+  delete remotePlayers[id];
+});
+
+socket.on('playerMoved', function(data) {
+  if (data.id !== socket.id) {
+    if (!remotePlayers[data.id]) remotePlayers[data.id] = {};
+    remotePlayers[data.id].x = data.x;
+    remotePlayers[data.id].y = data.y;
+  }
+});
+
+socket.on('coreKicked', function(data) {
+  core.vx = data.vx;
+  core.vy = data.vy;
+});
+</script>
+</body>
+</html>
