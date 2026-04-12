@@ -161,7 +161,7 @@ document.addEventListener('keydown', function(e) {
 });
 document.addEventListener('keyup', function(e) { keys[e.key] = false; });
 
-canvas.addEventListener('mousemove', function(e) {
+document.addEventListener('mousemove', function(e) {
   var rect = canvas.getBoundingClientRect();
   var scaleX = W / rect.width;
   mouseX = (e.clientX - rect.left) * scaleX;
@@ -174,7 +174,7 @@ canvas.addEventListener('mousemove', function(e) {
   }
 });
 
-canvas.addEventListener('mousedown', function(e) {
+document.addEventListener('mousedown', function(e) {
   if (!paused) {
     // キック
     var rect = canvas.getBoundingClientRect();
@@ -212,7 +212,7 @@ canvas.addEventListener('mousedown', function(e) {
   }
 });
 
-canvas.addEventListener('mouseup', function() { dragTarget = null; });
+document.addEventListener('mouseup', function() { dragTarget = null; });
 
 // 一時停止ボタン
 document.getElementById('btn-pause').addEventListener('click', function() {
@@ -419,7 +419,7 @@ function drawPlayer(p) {
 
   if (p.isPlayer) {
     var d = dist(p, core);
-    if (d < pr + CORE_R + 60) {
+    if (d < pr + CORE_R + 20) {
       ctx.beginPath();
       ctx.arc(p.x, p.y, pr+5, 0, Math.PI*2);
       ctx.strokeStyle = 'rgba(255,255,100,0.9)';
