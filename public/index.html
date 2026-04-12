@@ -73,6 +73,21 @@ var SHOOT_FORCE = 7;
 var SHOOT_R = 5;
 
 var score = [0, 0];
+function checkWin() {
+  var a = score[0], b = score[1];
+  if ((a >= 5 || b >= 5) && Math.abs(a - b) >= 2) {
+    var winner = a > b ? '青チーム' : '赤チーム';
+    goalFlash = 180;
+    goalTeam = a > b ? 0 : 1;
+    setTimeout(function() {
+      score = [0, 0];
+      document.getElementById('score').textContent = '0 - 0';
+      fullReset();
+    }, 1000);
+    return true;
+  }
+  return false;
+}
 var keys = {};
 var goalFlash = 0, goalTeam = -1;
 var mouseX = W/2, mouseY = H/2;
@@ -308,6 +323,7 @@ function updateCore(delta) {
     if (core.y > gT && core.y < gB) {
       score[1]++; goalFlash=90; goalTeam=1;
       document.getElementById('score').textContent = score[0]+' - '+score[1];
+      if (checkWin()) return;
       reset(); return;
     } else { core.x = CORE_R+GOAL_W; core.vx *= -0.8; }
   }
@@ -315,6 +331,7 @@ function updateCore(delta) {
     if (core.y > gT && core.y < gB) {
       score[0]++; goalFlash=90; goalTeam=0;
       document.getElementById('score').textContent = score[0]+' - '+score[1];
+      if (checkWin()) return;
       reset(); return;
     } else { core.x = W-CORE_R-GOAL_W; core.vx *= -0.8; }
   }
@@ -378,6 +395,13 @@ function drawField() {
     goalFlash--;
   }
 
+  if (goalFlash > 90) {
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 36px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(goalTeam === 0 ? '青チームの勝ちにゃ！🎉' : '赤チームの勝ちにゃ！🎉', W/2, H/2 - 20);
+    ctx.textAlign = 'left';
+  }
   if (paused) {
     ctx.fillStyle = 'rgba(0,0,0,0.35)';
     ctx.fillRect(0,0,W,H);
