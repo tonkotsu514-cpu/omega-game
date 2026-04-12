@@ -7,32 +7,37 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { background: #1a1a2e; display: flex; flex-direction: column; align-items: center; padding: 16px; font-family: sans-serif; }
 canvas { display: block; border-radius: 8px; cursor: crosshair; width: 100%; max-width: 640px; }
-#ui { padding: 8px 0; display: flex; gap: 12px; align-items: center; width: 100%; max-width: 640px; }
-#score { font-size: 22px; font-weight: 500; color: #fff; flex: 1; text-align: center; }
-.info { font-size: 13px; color: #aaa; }
 #msg { font-size: 13px; color: #aaa; text-align: center; margin: 4px 0; }
-#connection { font-size: 12px; color: #888; text-align: center; margin: 2px 0; }
+#team-ui { display: flex; justify-content: space-between; width: 100%; max-width: 640px; margin: 4px 0; }
+.team-block { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 120px; }
+.team-label { font-size: 13px; }
+.team-players { font-size: 11px; color: #777; }
 #controls { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin: 6px 0; width: 100%; max-width: 640px; }
 #controls button { background: #2a2a4a; color: #ccc; border: 1px solid #555; border-radius: 6px; padding: 5px 12px; cursor: pointer; font-size: 12px; }
 #controls button:hover { background: #3a3a6a; }
 #controls button.active { background: #4a4aaa; color: #fff; border-color: #88f; }
-#size-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: center; margin: 4px 0; width: 100%; max-width: 640px; }
-#size-controls label { color: #aaa; font-size: 12px; }
-#size-controls input { width: 100px; }
-#haste-ui { display: flex; gap: 16px; justify-content: center; margin: 4px 0; font-size: 12px; color: #aaa; }
+#score { font-size: 22px; font-weight: 500; color: #fff; text-align: center; margin: 4px 0; }
+#bottom-ui { display: flex; align-items: center; gap: 16px; width: 100%; max-width: 640px; margin: 4px 0; flex-wrap: wrap; }
 .cd-bar-wrap { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.cd-bar-wrap span { font-size: 11px; color: #aaa; }
 .cd-bar { width: 80px; height: 6px; background: #333; border-radius: 3px; overflow: hidden; }
 .cd-fill { height: 100%; border-radius: 3px; transition: width 0.1s; }
+#size-wrap { display: flex; align-items: center; gap: 6px; }
+#size-wrap label { font-size: 11px; color: #aaa; white-space: nowrap; }
+#size-wrap input { width: 80px; }
 </style>
 </head>
 <body>
-
 <div id="msg">WASD移動　クリックでキック　Shift:ヘイスト　R:発射</div>
-<div id="connection">接続中...</div>
-<div id="ui">
-  <span class="info">青チーム</span>
-  <div id="score">0 - 0</div>
-  <span class="info">赤チーム</span>
+<div id="team-ui">
+  <div class="team-block">
+    <span class="team-label" style="color:#4a9fd4;">青チーム</span>
+    <div class="team-players" id="blue-players">-</div>
+  </div>
+  <div class="team-block">
+    <span class="team-label" style="color:#e05a5a;">赤チーム</span>
+    <div class="team-players" id="red-players">-</div>
+  </div>
 </div>
 <div id="controls">
   <button id="btn-pause">⏸ 一時停止</button>
@@ -40,11 +45,9 @@ canvas { display: block; border-radius: 8px; cursor: crosshair; width: 100%; max
   <button id="btn-add-red">＋赤AI</button>
   <button id="btn-remove-ai">－AI削除</button>
 </div>
-<div id="size-controls">
-  <label>自分のサイズ: <span id="size-val">1.0</span>x</label>
-  <input type="range" id="size-slider" min="0.5" max="2" step="0.1" value="1">
-</div>
-<div id="haste-ui">
+<div id="score">0 - 0</div>
+<canvas id="c"></canvas>
+<div id="bottom-ui">
   <div class="cd-bar-wrap">
     <span>ヘイスト(Shift)</span>
     <div class="cd-bar"><div class="cd-fill" id="haste-cd" style="width:100%;background:#4af;"></div></div>
@@ -53,532 +56,297 @@ canvas { display: block; border-radius: 8px; cursor: crosshair; width: 100%; max
     <span>発射(R)</span>
     <div class="cd-bar"><div class="cd-fill" id="shoot-cd" style="width:100%;background:#fa4;"></div></div>
   </div>
+  <div id="size-wrap">
+    <label>サイズ: <span id="size-val">1.0</span>x</label>
+    <input type="range" id="size-slider" min="0.5" max="2" step="0.1" value="1">
+  </div>
 </div>
-<canvas id="c"></canvas>
-
 <script src="/socket.io/socket.io.js"></script>
 <script>
-var W = 640, H = 400;
-var GOAL_W = 18, GOAL_H = 180;
-var CORE_R = 14, PLAYER_R = 18;
-var FRICTION = 0.992;
-var KICK_FORCE = 5.1;
-var PLAYER_SPEED = 2.4;
-var HASTE_SPEED = 3.8;
-var KICK_RANGE = PLAYER_R + CORE_R + 20;
-var HASTE_DURATION = 3000;
-var HASTE_CD = 13000;
-var SHOOT_CD = 11000;
-var SHOOT_FORCE = 7;
-var SHOOT_R = 5;
+var W=640,H=400,GOAL_W=18,GOAL_H=180,CORE_R=14,PLAYER_R=18,FRICTION=0.992,KICK_FORCE=5.1,PLAYER_SPEED=2.4,HASTE_SPEED=3.8,KICK_RANGE=PLAYER_R+CORE_R+20,HASTE_DURATION=3000,HASTE_CD=13000,SHOOT_CD=11000,SHOOT_FORCE=7,SHOOT_R=5,AI_HASTE_CD=13000;
+var score=[0,0],keys={},goalFlash=0,goalTeam=-1,mouseX=W/2,mouseY=H/2,core,players,projectiles=[],remotePlayers={},isHost=false,paused=false,dragTarget=null,dragOffX=0,dragOffY=0,playerSize=1.0,lastTime=0,hasteCdLeft=0,hasteActive=false,hasteEnd=0,shootCdLeft=0,myPlayerNumber=1;
+var canvas=document.getElementById('c'),ctx=canvas.getContext('2d');
+canvas.width=W;canvas.height=H;
 
-var score = [0, 0];
-function checkWin() {
-  var a = score[0], b = score[1];
-  if ((a >= 5 || b >= 5) && Math.abs(a - b) >= 2) {
-    var winner = a > b ? '青チーム' : '赤チーム';
-    goalFlash = 180;
-    goalTeam = a > b ? 0 : 1;
-    setTimeout(function() {
-      score = [0, 0];
-      document.getElementById('score').textContent = '0 - 0';
-      fullReset();
-    }, 1000);
-    return true;
-  }
-  return false;
-}
-var keys = {};
-var goalFlash = 0, goalTeam = -1;
-var mouseX = W/2, mouseY = H/2;
-var core, players;
-var projectiles = [];
-var remotePlayers = {};
-var isHost = false;
-var paused = false;
-var dragTarget = null, dragOffX = 0, dragOffY = 0;
-var playerSize = 1.0;
-var lastTime = 0;
-
-// ヘイスト・射撃クールタイム
-var hasteCdLeft = 0, hasteActive = false, hasteEnd = 0;
-var shootCdLeft = 0;
-
-// AI用ヘイスト
-var AI_HASTE_CD = 13000;
-
-var canvas = document.getElementById('c');
-var ctx = canvas.getContext('2d');
-canvas.width = W; canvas.height = H;
-
-function makeCore() { return { x: W/2, y: H/2, vx: 0, vy: 0 }; }
-
-function makePlayer(x, y, color, team, isPlayer) {
-  return { x, y, vx:0, vy:0, color, team, isPlayer,
-    hasteActive: false, hasteEnd: 0, hasteCdLeft: 0,
-    aiHasteCd: Math.random() * AI_HASTE_CD };
-}
-
-function makePlayers() {
-  return [
-    makePlayer(160, H/2, '#4a9fd4', 0, true),
-    makePlayer(W-160, H/2, '#e05a5a', 1, false)
-  ];
-}
-
-function reset() {
-  core = makeCore();
-  core.vx = (Math.random()-0.5)*1.65;
-  core.vy = (Math.random()-0.5)*1.65;
-  // AIはリセットせず、プレイヤーのみ位置リセット
-  players.forEach(function(p) {
-    p.x = p.team === 0 ? 160 : W-160;
-    p.y = H/2;
-    p.vx = 0; p.vy = 0;
+function updateTeamDisplay(){
+  var bl=[],rl=[];
+  if(players[0].team===0)bl.push('プレイヤー'+myPlayerNumber+'(あなた)');
+  else rl.push('プレイヤー'+myPlayerNumber+'(あなた)');
+  Object.keys(remotePlayers).forEach(function(id){
+    var rp=remotePlayers[id],n=rp.playerNumber||'?';
+    if(rp.team===0)bl.push('プレイヤー'+n);else rl.push('プレイヤー'+n);
   });
-  projectiles = [];
+  document.getElementById('blue-players').textContent=bl.length?bl.join(' / '):'-';
+  document.getElementById('red-players').textContent=rl.length?rl.join(' / '):'-';
 }
 
-function fullReset() {
-  players = makePlayers();
-  core = makeCore();
-  core.vx = (Math.random()-0.5)*1.65;
-  core.vy = (Math.random()-0.5)*1.65;
-  projectiles = [];
+function checkWin(){
+  var a=score[0],b=score[1];
+  if((a>=5||b>=5)&&Math.abs(a-b)>=2){
+    goalFlash=180;goalTeam=a>b?0:1;
+    score=[0,0];document.getElementById('score').textContent='0 - 0';
+    fullReset();return true;
+  }return false;
 }
 
-document.addEventListener('keydown', function(e) {
-  keys[e.key] = true;
-  var nav = ['w','a','s','d','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'];
-  if (nav.indexOf(e.key) >= 0) e.preventDefault();
+function makeCore(){return{x:W/2,y:H/2,vx:0,vy:0};}
+function makePlayer(x,y,color,team,isPlayer){
+  return{x:x,y:y,vx:0,vy:0,color:color,team:team,isPlayer:isPlayer,hasteActive:false,hasteEnd:0,hasteCdLeft:0,aiHasteCd:Math.random()*AI_HASTE_CD};
+}
+function makePlayers(){return[makePlayer(160,H/2,'#4a9fd4',0,true),makePlayer(W-160,H/2,'#e05a5a',1,false)];}
+function reset(){
+  core=makeCore();core.vx=(Math.random()-0.5)*1.65;core.vy=(Math.random()-0.5)*1.65;
+  players.forEach(function(p){p.x=p.team===0?160:W-160;p.y=H/2;p.vx=0;p.vy=0;});
+  projectiles=[];
+}
+function fullReset(){
+  players=makePlayers();core=makeCore();
+  core.vx=(Math.random()-0.5)*1.65;core.vy=(Math.random()-0.5)*1.65;projectiles=[];
+}
+function dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y);}
 
-  // ヘイスト
-  if (e.key === 'Shift' && hasteCdLeft <= 0 && !hasteActive) {
-    hasteActive = true;
-    hasteEnd = performance.now() + HASTE_DURATION;
-    hasteCdLeft = HASTE_CD;
-    if (typeof socket !== 'undefined' && socket.connected)
-      socket.emit('haste', { id: socket.id });
+document.addEventListener('keydown',function(e){
+  keys[e.key]=true;
+  var nav=['w','a','s','d','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'];
+  if(nav.indexOf(e.key)>=0)e.preventDefault();
+  if(e.key==='Shift'&&hasteCdLeft<=0&&!hasteActive){
+    hasteActive=true;hasteEnd=performance.now()+HASTE_DURATION;hasteCdLeft=HASTE_CD;
+    if(typeof socket!=='undefined'&&socket.connected)socket.emit('haste',{id:socket.id});
   }
-  // 発射
-  if (e.key === 'r' || e.key === 'R') {
-    if (shootCdLeft <= 0) {
-      shootCdLeft = SHOOT_CD;
-      var p = players[0];
-      var dx = mouseX - p.x, dy = mouseY - p.y;
-      var len = Math.hypot(dx, dy) || 1;
-      var proj = { x: p.x, y: p.y, vx: (dx/len)*SHOOT_FORCE, vy: (dy/len)*SHOOT_FORCE };
+  if(e.key==='r'||e.key==='R'){
+    if(shootCdLeft<=0){
+      shootCdLeft=SHOOT_CD;var p=players[0];
+      var dx=mouseX-p.x,dy=mouseY-p.y,len=Math.hypot(dx,dy)||1;
+      var proj={x:p.x,y:p.y,vx:(dx/len)*SHOOT_FORCE,vy:(dy/len)*SHOOT_FORCE};
       projectiles.push(proj);
-      if (typeof socket !== 'undefined' && socket.connected)
-        socket.emit('shoot', { x: proj.x, y: proj.y, vx: proj.vx, vy: proj.vy });
+      if(typeof socket!=='undefined'&&socket.connected)socket.emit('shoot',{x:proj.x,y:proj.y,vx:proj.vx,vy:proj.vy});
     }
   }
 });
-document.addEventListener('keyup', function(e) { keys[e.key] = false; });
+document.addEventListener('keyup',function(e){keys[e.key]=false;});
 
-document.addEventListener('mousemove', function(e) {
-  var rect = canvas.getBoundingClientRect();
-  var scaleX = W / rect.width;
-  mouseX = (e.clientX - rect.left) * scaleX;
-  mouseY = (e.clientY - rect.top) * scaleX;
-  if (paused && dragTarget) {
-    dragTarget.x = mouseX - dragOffX;
-    dragTarget.y = mouseY - dragOffY;
-    dragTarget.x = Math.max(PLAYER_R, Math.min(W-PLAYER_R, dragTarget.x));
-    dragTarget.y = Math.max(PLAYER_R, Math.min(H-PLAYER_R, dragTarget.y));
+document.addEventListener('mousemove',function(e){
+  var rect=canvas.getBoundingClientRect(),scaleX=W/rect.width;
+  mouseX=(e.clientX-rect.left)*scaleX;mouseY=(e.clientY-rect.top)*scaleX;
+  if(paused&&dragTarget){
+    dragTarget.x=Math.max(PLAYER_R,Math.min(W-PLAYER_R,mouseX-dragOffX));
+    dragTarget.y=Math.max(PLAYER_R,Math.min(H-PLAYER_R,mouseY-dragOffY));
   }
 });
 
-document.addEventListener('mousedown', function(e) {
-  if (!paused) {
-    // キック
-    var rect = canvas.getBoundingClientRect();
-    var scaleX = W / rect.width;
-    var cx = (e.clientX - rect.left) * scaleX;
-    var cy = (e.clientY - rect.top) * scaleX;
-    var p = players[0];
-    var pr = PLAYER_R * playerSize;
-    var d = Math.hypot(p.x - core.x, p.y - core.y);
-    if (d < pr + CORE_R + 20) {
-      var dx = cx - core.x, dy = cy - core.y;
-      var len = Math.hypot(dx, dy) || 1;
-      core.vx = (dx/len) * KICK_FORCE;
-      core.vy = (dy/len) * KICK_FORCE;
-      if (typeof socket !== 'undefined' && socket.connected)
-        socket.emit('coreKick', { vx: core.vx, vy: core.vy });
+document.addEventListener('mousedown',function(e){
+  var rect=canvas.getBoundingClientRect(),scaleX=W/rect.width;
+  var mx=(e.clientX-rect.left)*scaleX,my=(e.clientY-rect.top)*scaleX;
+  if(!paused){
+    var p=players[0],pr=PLAYER_R*playerSize,d=Math.hypot(p.x-core.x,p.y-core.y);
+    if(d<pr+CORE_R+60){
+      var dx=mx-core.x,dy=my-core.y,len=Math.hypot(dx,dy)||1;
+      core.vx=(dx/len)*KICK_FORCE;core.vy=(dy/len)*KICK_FORCE;
+      if(typeof socket!=='undefined'&&socket.connected)socket.emit('coreKick',{vx:core.vx,vy:core.vy});
     }
     return;
   }
-  // 一時停止中ドラッグ
-  var rect = canvas.getBoundingClientRect();
-  var scaleX = W / rect.width;
-  var mx = (e.clientX - rect.left) * scaleX;
-  var my = (e.clientY - rect.top) * scaleX;
-  // コア
-  if (Math.hypot(mx - core.x, my - core.y) < CORE_R + 10) {
-    dragTarget = core; dragOffX = mx - core.x; dragOffY = my - core.y; return;
-  }
-  // プレイヤー
-  for (var i = 0; i < players.length; i++) {
-    var pr = PLAYER_R * (players[i].isPlayer ? playerSize : 1);
-    if (Math.hypot(mx - players[i].x, my - players[i].y) < pr + 10) {
-      dragTarget = players[i]; dragOffX = mx - players[i].x; dragOffY = my - players[i].y; return;
-    }
+  if(Math.hypot(mx-core.x,my-core.y)<CORE_R+10){dragTarget=core;dragOffX=mx-core.x;dragOffY=my-core.y;return;}
+  for(var i=0;i<players.length;i++){
+    var pr2=PLAYER_R*(players[i].isPlayer?playerSize:1);
+    if(Math.hypot(mx-players[i].x,my-players[i].y)<pr2+10){dragTarget=players[i];dragOffX=mx-players[i].x;dragOffY=my-players[i].y;return;}
   }
 });
+document.addEventListener('mouseup',function(){dragTarget=null;});
 
-document.addEventListener('mouseup', function() { dragTarget = null; });
-
-// 一時停止ボタン
-document.getElementById('btn-pause').addEventListener('click', function() {
-  paused = !paused;
-  this.textContent = paused ? '▶ 再開' : '⏸ 一時停止';
-  this.classList.toggle('active', paused);
-  if (typeof socket !== 'undefined' && socket.connected)
-    socket.emit('pause', { paused });
+document.getElementById('btn-pause').addEventListener('click',function(){
+  paused=!paused;this.textContent=paused?'▶ 再開':'⏸ 一時停止';this.classList.toggle('active',paused);
+  if(typeof socket!=='undefined'&&socket.connected)socket.emit('pause',{paused:paused});
+});
+document.getElementById('btn-add-blue').addEventListener('click',function(){
+  players.push(makePlayer(160+Math.random()*80,H/2+(Math.random()-0.5)*100,'#4a9fd4',0,false));
+});
+document.getElementById('btn-add-red').addEventListener('click',function(){
+  players.push(makePlayer(W-160-Math.random()*80,H/2+(Math.random()-0.5)*100,'#e05a5a',1,false));
+});
+document.getElementById('btn-remove-ai').addEventListener('click',function(){
+  for(var i=players.length-1;i>=0;i--){if(!players[i].isPlayer){players.splice(i,1);break;}}
+});
+document.getElementById('size-slider').addEventListener('input',function(){
+  playerSize=parseFloat(this.value);document.getElementById('size-val').textContent=playerSize.toFixed(1);
 });
 
-// AI追加・削除
-document.getElementById('btn-add-blue').addEventListener('click', function() {
-  players.push(makePlayer(160 + Math.random()*80, H/2 + (Math.random()-0.5)*100, '#4a9fd4', 0, false));
-});
-document.getElementById('btn-add-red').addEventListener('click', function() {
-  players.push(makePlayer(W-160 - Math.random()*80, H/2 + (Math.random()-0.5)*100, '#e05a5a', 1, false));
-});
-document.getElementById('btn-remove-ai').addEventListener('click', function() {
-  for (var i = players.length - 1; i >= 0; i--) {
-    if (!players[i].isPlayer) { players.splice(i, 1); break; }
-  }
-});
-
-// サイズスライダー
-document.getElementById('size-slider').addEventListener('input', function() {
-  playerSize = parseFloat(this.value);
-  document.getElementById('size-val').textContent = playerSize.toFixed(1);
-});
-
-function dist(a, b) { return Math.hypot(a.x-b.x, a.y-b.y); }
-
-function aiMove(ai, delta) {
-  var speed = ai.hasteActive ? HASTE_SPEED : PLAYER_SPEED;
-  // ヘイスト処理
-  ai.aiHasteCd -= delta * 16.67;
-  if (ai.aiHasteCd <= 0 && !ai.hasteActive) {
-    ai.hasteActive = true;
-    ai.hasteEnd = performance.now() + HASTE_DURATION;
-    ai.aiHasteCd = AI_HASTE_CD + Math.random() * 5000;
-  }
-  if (ai.hasteActive && performance.now() > ai.hasteEnd) ai.hasteActive = false;
-
-  var tx = ai.team === 1 ? core.x + 70 : core.x - 70;
-  var ty = core.y;
-  var dx = tx-ai.x, dy = ty-ai.y;
-  var d = Math.hypot(dx,dy);
-  if (d > 4) { ai.vx += (dx/d)*0.35*delta; ai.vy += (dy/d)*0.35*delta; }
-  var spd = Math.hypot(ai.vx, ai.vy);
-  if (spd > speed) { ai.vx = ai.vx/spd*speed; ai.vy = ai.vy/spd*speed; }
-  var dd = dist(ai, core);
-  if (dd < KICK_RANGE && Math.random() < 0.02) {
-    var goalX = ai.team === 1 ? W*0.05 : W*0.95;
-    var nx = goalX - core.x, ny = H/2 - core.y;
-    var len = Math.hypot(nx,ny)||1;
-    core.vx = (nx/len)*KICK_FORCE;
-    core.vy = (ny/len)*KICK_FORCE;
-    if (typeof socket !== 'undefined' && socket.connected)
-      socket.emit('coreKick', { vx: core.vx, vy: core.vy });
+function aiMove(ai,delta){
+  var speed=ai.hasteActive?HASTE_SPEED:PLAYER_SPEED;
+  ai.aiHasteCd-=delta*16.67;
+  if(ai.aiHasteCd<=0&&!ai.hasteActive){ai.hasteActive=true;ai.hasteEnd=performance.now()+HASTE_DURATION;ai.aiHasteCd=AI_HASTE_CD+Math.random()*5000;}
+  if(ai.hasteActive&&performance.now()>ai.hasteEnd)ai.hasteActive=false;
+  var tx=ai.team===1?core.x+70:core.x-70,ty=core.y,dx=tx-ai.x,dy=ty-ai.y,d=Math.hypot(dx,dy);
+  if(d>4){ai.vx+=(dx/d)*0.35*delta;ai.vy+=(dy/d)*0.35*delta;}
+  var spd=Math.hypot(ai.vx,ai.vy);if(spd>speed){ai.vx=ai.vx/spd*speed;ai.vy=ai.vy/spd*speed;}
+  if(dist(ai,core)<KICK_RANGE&&Math.random()<0.02){
+    var goalX=ai.team===1?W*0.05:W*0.95,nx=goalX-core.x,ny=H/2-core.y,len=Math.hypot(nx,ny)||1;
+    core.vx=(nx/len)*KICK_FORCE;core.vy=(ny/len)*KICK_FORCE;
+    if(typeof socket!=='undefined'&&socket.connected)socket.emit('coreKick',{vx:core.vx,vy:core.vy});
   }
 }
 
-function updatePlayer(p, delta) {
-  var pr = p.isPlayer ? PLAYER_R * playerSize : PLAYER_R;
-  if (p.isPlayer) {
-    // ヘイスト更新
-    if (hasteActive && performance.now() > hasteEnd) hasteActive = false;
-    var speed = hasteActive ? HASTE_SPEED : PLAYER_SPEED;
-    if (keys['w']||keys['ArrowUp'])    p.vy -= speed * delta;
-    if (keys['s']||keys['ArrowDown'])  p.vy += speed * delta;
-    if (keys['a']||keys['ArrowLeft'])  p.vx -= speed * delta;
-    if (keys['d']||keys['ArrowRight']) p.vx += speed * delta;
-    var spd = Math.hypot(p.vx, p.vy);
-    if (spd > speed) { p.vx = p.vx/spd*speed; p.vy = p.vy/spd*speed; }
-  } else {
-    aiMove(p, delta);
-  }
-  p.vx *= Math.pow(0.75, delta); p.vy *= Math.pow(0.75, delta);
-  p.x += p.vx * delta; p.y += p.vy * delta;
-  p.x = Math.max(pr, Math.min(W-pr, p.x));
-  p.y = Math.max(pr, Math.min(H-pr, p.y));
+function updatePlayer(p,delta){
+  var pr=p.isPlayer?PLAYER_R*playerSize:PLAYER_R;
+  if(p.isPlayer){
+    if(hasteActive&&performance.now()>hasteEnd)hasteActive=false;
+    var speed=hasteActive?HASTE_SPEED:PLAYER_SPEED;
+    if(keys['w']||keys['ArrowUp'])p.vy-=speed*delta;
+    if(keys['s']||keys['ArrowDown'])p.vy+=speed*delta;
+    if(keys['a']||keys['ArrowLeft'])p.vx-=speed*delta;
+    if(keys['d']||keys['ArrowRight'])p.vx+=speed*delta;
+    var spd=Math.hypot(p.vx,p.vy);if(spd>speed){p.vx=p.vx/spd*speed;p.vy=p.vy/spd*speed;}
+  }else{aiMove(p,delta);}
+  p.vx*=Math.pow(0.75,delta);p.vy*=Math.pow(0.75,delta);
+  p.x+=p.vx*delta;p.y+=p.vy*delta;
+  p.x=Math.max(pr,Math.min(W-pr,p.x));p.y=Math.max(pr,Math.min(H-pr,p.y));
 }
 
-function updateCore(delta) {
-  core.vx *= Math.pow(FRICTION, delta); core.vy *= Math.pow(FRICTION, delta);
-  core.x += core.vx * delta; core.y += core.vy * delta;
-
-  if (core.y - CORE_R < 0) { core.y = CORE_R; core.vy *= -0.8; }
-  if (core.y + CORE_R > H) { core.y = H-CORE_R; core.vy *= -0.8; }
-
-  var gT = (H-GOAL_H)/2, gB = gT+GOAL_H;
-
-  if (core.x - CORE_R < GOAL_W) {
-    if (core.y > gT && core.y < gB) {
-      score[1]++; goalFlash=90; goalTeam=1;
-      document.getElementById('score').textContent = score[0]+' - '+score[1];
-      if (checkWin()) return;
-      reset(); return;
-    } else { core.x = CORE_R+GOAL_W; core.vx *= -0.8; }
+function updateCore(delta){
+  core.vx*=Math.pow(FRICTION,delta);core.vy*=Math.pow(FRICTION,delta);
+  core.x+=core.vx*delta;core.y+=core.vy*delta;
+  if(core.y-CORE_R<0){core.y=CORE_R;core.vy*=-0.8;}
+  if(core.y+CORE_R>H){core.y=H-CORE_R;core.vy*=-0.8;}
+  var gT=(H-GOAL_H)/2,gB=gT+GOAL_H;
+  if(core.x-CORE_R<GOAL_W){
+    if(core.y>gT&&core.y<gB){score[1]++;goalFlash=90;goalTeam=1;document.getElementById('score').textContent=score[0]+' - '+score[1];if(checkWin())return;reset();return;}
+    else{core.x=CORE_R+GOAL_W;core.vx*=-0.8;}
   }
-  if (core.x + CORE_R > W-GOAL_W) {
-    if (core.y > gT && core.y < gB) {
-      score[0]++; goalFlash=90; goalTeam=0;
-      document.getElementById('score').textContent = score[0]+' - '+score[1];
-      if (checkWin()) return;
-      reset(); return;
-    } else { core.x = W-CORE_R-GOAL_W; core.vx *= -0.8; }
+  if(core.x+CORE_R>W-GOAL_W){
+    if(core.y>gT&&core.y<gB){score[0]++;goalFlash=90;goalTeam=0;document.getElementById('score').textContent=score[0]+' - '+score[1];if(checkWin())return;reset();return;}
+    else{core.x=W-CORE_R-GOAL_W;core.vx*=-0.8;}
   }
 }
 
-function updateProjectiles(delta) {
-  for (var i = projectiles.length - 1; i >= 0; i--) {
-    var proj = projectiles[i];
-    proj.x += proj.vx * delta;
-    proj.y += proj.vy * delta;
-    // 画面外
-    if (proj.x < 0 || proj.x > W || proj.y < 0 || proj.y > H) {
-      projectiles.splice(i, 1); continue;
-    }
-    // コアに当たる
-    if (Math.hypot(proj.x - core.x, proj.y - core.y) < CORE_R + SHOOT_R) {
-      var dx = core.x - proj.x, dy = core.y - proj.y;
-      var len = Math.hypot(dx, dy) || 1;
-      core.vx = (dx/len) * KICK_FORCE;
-      core.vy = (dy/len) * KICK_FORCE;
-      if (typeof socket !== 'undefined' && socket.connected)
-        socket.emit('coreKick', { vx: core.vx, vy: core.vy });
-      projectiles.splice(i, 1);
+function updateProjectiles(delta){
+  for(var i=projectiles.length-1;i>=0;i--){
+    var proj=projectiles[i];proj.x+=proj.vx*delta;proj.y+=proj.vy*delta;
+    if(proj.x<0||proj.x>W||proj.y<0||proj.y>H){projectiles.splice(i,1);continue;}
+    if(Math.hypot(proj.x-core.x,proj.y-core.y)<CORE_R+SHOOT_R){
+      var dx=core.x-proj.x,dy=core.y-proj.y,len=Math.hypot(dx,dy)||1;
+      core.vx=(dx/len)*KICK_FORCE;core.vy=(dy/len)*KICK_FORCE;
+      if(typeof socket!=='undefined'&&socket.connected)socket.emit('coreKick',{vx:core.vx,vy:core.vy});
+      projectiles.splice(i,1);
     }
   }
 }
 
-function updateCooldowns(delta) {
-  var dt = delta * 16.67;
-  if (hasteCdLeft > 0) hasteCdLeft = Math.max(0, hasteCdLeft - dt);
-  if (shootCdLeft > 0) shootCdLeft = Math.max(0, shootCdLeft - dt);
-  // UI更新
-  document.getElementById('haste-cd').style.width = (hasteCdLeft <= 0 ? 100 : (1 - hasteCdLeft/HASTE_CD)*100) + '%';
-  document.getElementById('shoot-cd').style.width = (shootCdLeft <= 0 ? 100 : (1 - shootCdLeft/SHOOT_CD)*100) + '%';
+function updateCooldowns(delta){
+  var dt=delta*16.67;
+  if(hasteCdLeft>0)hasteCdLeft=Math.max(0,hasteCdLeft-dt);
+  if(shootCdLeft>0)shootCdLeft=Math.max(0,shootCdLeft-dt);
+  document.getElementById('haste-cd').style.width=(hasteCdLeft<=0?100:(1-hasteCdLeft/HASTE_CD)*100)+'%';
+  document.getElementById('shoot-cd').style.width=(shootCdLeft<=0?100:(1-shootCdLeft/SHOOT_CD)*100)+'%';
 }
 
-function drawField() {
-  ctx.fillStyle = '#3d6fa3';
-  ctx.fillRect(0,0,W,H);
-  ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-  ctx.lineWidth = 2;
-  ctx.strokeRect(2,2,W-4,H-4);
-  ctx.beginPath(); ctx.moveTo(W/2,0); ctx.lineTo(W/2,H); ctx.stroke();
-  ctx.beginPath(); ctx.arc(W/2,H/2,60,0,Math.PI*2); ctx.stroke();
-
-  var gT = (H-GOAL_H)/2;
-  ctx.fillStyle = 'rgba(74,159,212,0.3)';
-  ctx.fillRect(0, gT, GOAL_W, GOAL_H);
-  ctx.fillStyle = 'rgba(224,90,90,0.3)';
-  ctx.fillRect(W-GOAL_W, gT, GOAL_W, GOAL_H);
-  ctx.strokeStyle = 'rgba(255,255,255,0.75)';
-  ctx.lineWidth = 3;
-  ctx.strokeRect(0, gT, GOAL_W, GOAL_H);
-  ctx.strokeRect(W-GOAL_W, gT, GOAL_W, GOAL_H);
-
-  if (goalFlash > 0) {
-    ctx.fillStyle = goalTeam===0
-      ? 'rgba(74,159,212,'+(goalFlash/90*0.35)+')'
-      : 'rgba(224,90,90,'+(goalFlash/90*0.35)+')';
-    ctx.fillRect(0,0,W,H);
-    goalFlash--;
+function drawField(){
+  ctx.fillStyle='#3d6fa3';ctx.fillRect(0,0,W,H);
+  ctx.strokeStyle='rgba(255,255,255,0.25)';ctx.lineWidth=2;ctx.strokeRect(2,2,W-4,H-4);
+  ctx.beginPath();ctx.moveTo(W/2,0);ctx.lineTo(W/2,H);ctx.stroke();
+  ctx.beginPath();ctx.arc(W/2,H/2,60,0,Math.PI*2);ctx.stroke();
+  var gT=(H-GOAL_H)/2;
+  ctx.fillStyle='rgba(74,159,212,0.3)';ctx.fillRect(0,gT,GOAL_W,GOAL_H);
+  ctx.fillStyle='rgba(224,90,90,0.3)';ctx.fillRect(W-GOAL_W,gT,GOAL_W,GOAL_H);
+  ctx.strokeStyle='rgba(255,255,255,0.75)';ctx.lineWidth=3;
+  ctx.strokeRect(0,gT,GOAL_W,GOAL_H);ctx.strokeRect(W-GOAL_W,gT,GOAL_W,GOAL_H);
+  if(goalFlash>0){
+    ctx.fillStyle=goalTeam===0?'rgba(74,159,212,'+(goalFlash/90*0.35)+')':'rgba(224,90,90,'+(goalFlash/90*0.35)+')';
+    ctx.fillRect(0,0,W,H);goalFlash--;
   }
-
-  if (goalFlash > 90) {
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 36px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(goalTeam === 0 ? '青チームの勝ちにゃ！🎉' : '赤チームの勝ちにゃ！🎉', W/2, H/2 - 20);
-    ctx.textAlign = 'left';
+  if(goalFlash>90){
+    ctx.fillStyle='#fff';ctx.font='bold 36px sans-serif';ctx.textAlign='center';
+    ctx.fillText(goalTeam===0?'青チームの勝ちにゃ！🎉':'赤チームの勝ちにゃ！🎉',W/2,H/2-20);ctx.textAlign='left';
   }
-  if (paused) {
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.fillRect(0,0,W,H);
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 32px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('PAUSED', W/2, H/2);
-    ctx.textAlign = 'left';
+  if(paused){
+    ctx.fillStyle='rgba(0,0,0,0.35)';ctx.fillRect(0,0,W,H);
+    ctx.fillStyle='#fff';ctx.font='bold 32px sans-serif';ctx.textAlign='center';
+    ctx.fillText('PAUSED',W/2,H/2);ctx.textAlign='left';
   }
 }
 
-function drawCore() {
-  ctx.beginPath();
-  ctx.arc(core.x, core.y, CORE_R, 0, Math.PI*2);
-  ctx.fillStyle = '#ffe033';
-  ctx.fill();
-  ctx.strokeStyle = '#c8a800';
-  ctx.lineWidth = 2.5;
-  ctx.stroke();
+function drawCore(){
+  ctx.beginPath();ctx.arc(core.x,core.y,CORE_R,0,Math.PI*2);
+  ctx.fillStyle='#ffe033';ctx.fill();ctx.strokeStyle='#c8a800';ctx.lineWidth=2.5;ctx.stroke();
 }
 
-function drawPlayer(p) {
-  var pr = p.isPlayer ? PLAYER_R * playerSize : PLAYER_R;
-  // ヘイスト中のオーラ
-  if (p.isPlayer ? hasteActive : p.hasteActive) {
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, pr + 6, 0, Math.PI*2);
-    ctx.strokeStyle = 'rgba(100,200,255,0.8)';
-    ctx.lineWidth = 3;
-    ctx.stroke();
+function drawPlayer(p){
+  var pr=p.isPlayer?PLAYER_R*playerSize:PLAYER_R;
+  if(p.isPlayer?hasteActive:p.hasteActive){
+    ctx.beginPath();ctx.arc(p.x,p.y,pr+6,0,Math.PI*2);ctx.strokeStyle='rgba(100,200,255,0.8)';ctx.lineWidth=3;ctx.stroke();
   }
-  ctx.beginPath();
-  ctx.arc(p.x, p.y, pr, 0, Math.PI*2);
-  ctx.fillStyle = p.color;
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(255,255,255,0.8)';
-  ctx.lineWidth = 2;
-  ctx.stroke();
-
-  if (p.isPlayer) {
-    var d = dist(p, core);
-    if (d < pr + CORE_R + 20) {
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, pr+5, 0, Math.PI*2);
-      ctx.strokeStyle = 'rgba(255,255,100,0.9)';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      ctx.save();
-      ctx.setLineDash([4,4]);
-      ctx.beginPath();
-      ctx.moveTo(core.x, core.y);
-      ctx.lineTo(mouseX, mouseY);
-      ctx.strokeStyle = 'rgba(255,255,100,0.55)';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-      ctx.restore();
-    }
+  ctx.beginPath();ctx.arc(p.x,p.y,pr,0,Math.PI*2);ctx.fillStyle=p.color;ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,0.8)';ctx.lineWidth=2;ctx.stroke();
+  if(p.isPlayer&&dist(p,core)<pr+CORE_R+20){
+    ctx.beginPath();ctx.arc(p.x,p.y,pr+5,0,Math.PI*2);ctx.strokeStyle='rgba(255,255,100,0.9)';ctx.lineWidth=2;ctx.stroke();
+    ctx.save();ctx.setLineDash([4,4]);ctx.beginPath();ctx.moveTo(core.x,core.y);ctx.lineTo(mouseX,mouseY);
+    ctx.strokeStyle='rgba(255,255,100,0.55)';ctx.lineWidth=1.5;ctx.stroke();ctx.restore();
   }
 }
 
-function drawProjectiles() {
-  projectiles.forEach(function(proj) {
-    // 火花本体
-    ctx.beginPath();
-    ctx.arc(proj.x, proj.y, SHOOT_R, 0, Math.PI*2);
-    ctx.fillStyle = '#ffaa00';
-    ctx.fill();
-    // 光芒
-    var angle = Math.atan2(proj.vy, proj.vx);
-    for (var i = 0; i < 4; i++) {
-      var a = angle + (i * Math.PI/2);
-      ctx.beginPath();
-      ctx.moveTo(proj.x, proj.y);
-      ctx.lineTo(proj.x + Math.cos(a)*9, proj.y + Math.sin(a)*9);
-      ctx.strokeStyle = 'rgba(255,200,50,0.7)';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
+function drawProjectiles(){
+  projectiles.forEach(function(proj){
+    ctx.beginPath();ctx.arc(proj.x,proj.y,SHOOT_R,0,Math.PI*2);ctx.fillStyle='#ffaa00';ctx.fill();
+    var angle=Math.atan2(proj.vy,proj.vx);
+    for(var i=0;i<4;i++){
+      var a=angle+(i*Math.PI/2);ctx.beginPath();ctx.moveTo(proj.x,proj.y);
+      ctx.lineTo(proj.x+Math.cos(a)*9,proj.y+Math.sin(a)*9);ctx.strokeStyle='rgba(255,200,50,0.7)';ctx.lineWidth=1.5;ctx.stroke();
     }
   });
 }
 
-function drawRemotePlayers() {
-  Object.keys(remotePlayers).forEach(function(id) {
-    var rp = remotePlayers[id];
-    var col = rp.team === 0 ? '#4a9fd4' : '#e05a5a';
-    if (rp.hasteActive) {
-      ctx.beginPath();
-      ctx.arc(rp.x, rp.y, PLAYER_R+6, 0, Math.PI*2);
-      ctx.strokeStyle = 'rgba(100,200,255,0.8)';
-      ctx.lineWidth = 3;
-      ctx.stroke();
-    }
-    ctx.beginPath();
-    ctx.arc(rp.x, rp.y, PLAYER_R, 0, Math.PI*2);
-    ctx.fillStyle = col;
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.8)';
-    ctx.lineWidth = 2;
-    ctx.stroke();
+function drawRemotePlayers(){
+  Object.keys(remotePlayers).forEach(function(id){
+    var rp=remotePlayers[id],col=rp.team===0?'#4a9fd4':'#e05a5a';
+    if(rp.hasteActive){ctx.beginPath();ctx.arc(rp.x,rp.y,PLAYER_R+6,0,Math.PI*2);ctx.strokeStyle='rgba(100,200,255,0.8)';ctx.lineWidth=3;ctx.stroke();}
+    ctx.beginPath();ctx.arc(rp.x,rp.y,PLAYER_R,0,Math.PI*2);ctx.fillStyle=col;ctx.fill();
+    ctx.strokeStyle='rgba(255,255,255,0.8)';ctx.lineWidth=2;ctx.stroke();
   });
 }
 
-function loop(timestamp) {
-  var delta = lastTime === 0 ? 1 : Math.min((timestamp - lastTime) / 16.67, 3);
-  lastTime = timestamp;
-
-  if (!paused) {
-    players.forEach(function(p) { updatePlayer(p, delta); });
-    updateCore(delta);
-    updateProjectiles(delta);
-  }
+function loop(timestamp){
+  var delta=lastTime===0?1:Math.min((timestamp-lastTime)/16.67,3);lastTime=timestamp;
+  if(!paused){players.forEach(function(p){updatePlayer(p,delta);});updateCore(delta);updateProjectiles(delta);}
   updateCooldowns(delta);
-
-  if (typeof socket !== 'undefined' && socket.connected) {
-    socket.emit('playerMove', { x: players[0].x, y: players[0].y, team: players[0].team, hasteActive: hasteActive });
-    if (isHost) socket.emit('coreSync', { x: core.x, y: core.y, vx: core.vx, vy: core.vy });
+  if(typeof socket!=='undefined'&&socket.connected){
+    socket.emit('playerMove',{x:players[0].x,y:players[0].y,team:players[0].team,hasteActive:hasteActive,playerNumber:myPlayerNumber});
+    if(isHost)socket.emit('coreSync',{x:core.x,y:core.y,vx:core.vx,vy:core.vy});
   }
-
-  drawField();
-  drawRemotePlayers();
-  players.forEach(drawPlayer);
-  drawProjectiles();
-  drawCore();
+  drawField();drawRemotePlayers();players.forEach(drawPlayer);drawProjectiles();drawCore();
   requestAnimationFrame(loop);
 }
 
-fullReset();
-requestAnimationFrame(loop);
-
-var socket = io();
-
-socket.on('connect', function() {
-  document.getElementById('connection').textContent = '接続済み: ' + socket.id;
+fullReset();requestAnimationFrame(loop);
+var socket=io();
+socket.on('connect',function(){});
+socket.on('disconnect',function(){});
+socket.on('init',function(state){
+  isHost=Object.keys(state.players).length===1;
+  var myIdx=Object.keys(state.players).indexOf(socket.id);
+  myPlayerNumber=myIdx+1;
+  players[0].team=myIdx%2===0?0:1;players[0].color=players[0].team===0?'#4a9fd4':'#e05a5a';
+  Object.keys(state.players).forEach(function(id){if(id!==socket.id)remotePlayers[id]=state.players[id];});
+  updateTeamDisplay();
 });
-socket.on('disconnect', function() {
-  document.getElementById('connection').textContent = '切断されました';
-});
-socket.on('init', function(state) {
-  isHost = Object.keys(state.players).length === 1;
-  // チーム自動振り分け
-  var myIdx = Object.keys(state.players).indexOf(socket.id);
-  players[0].team = myIdx % 2 === 0 ? 0 : 1;
-  players[0].color = players[0].team === 0 ? '#4a9fd4' : '#e05a5a';
-  Object.keys(state.players).forEach(function(id) {
-    if (id !== socket.id) remotePlayers[id] = state.players[id];
-  });
-});
-socket.on('becomeHost', function() { isHost = true; });
-socket.on('coreSynced', function(data) {
-  if (!isHost) { core.x=data.x; core.y=data.y; core.vx=data.vx; core.vy=data.vy; }
-});
-socket.on('playerJoined', function(data) {
-  remotePlayers[data.id] = data.data;
-});
-socket.on('playerLeft', function(id) { delete remotePlayers[id]; });
-socket.on('playerMoved', function(data) {
-  if (data.id !== socket.id) {
-    if (!remotePlayers[data.id]) remotePlayers[data.id] = {};
-    remotePlayers[data.id].x = data.x;
-    remotePlayers[data.id].y = data.y;
-    remotePlayers[data.id].team = data.team;
-    remotePlayers[data.id].hasteActive = data.hasteActive;
+socket.on('becomeHost',function(){isHost=true;});
+socket.on('coreSynced',function(data){if(!isHost){core.x=data.x;core.y=data.y;core.vx=data.vx;core.vy=data.vy;}});
+socket.on('playerJoined',function(data){remotePlayers[data.id]=data.data;updateTeamDisplay();});
+socket.on('playerLeft',function(id){delete remotePlayers[id];updateTeamDisplay();});
+socket.on('playerMoved',function(data){
+  if(data.id!==socket.id){
+    if(!remotePlayers[data.id])remotePlayers[data.id]={};
+    remotePlayers[data.id].x=data.x;remotePlayers[data.id].y=data.y;
+    remotePlayers[data.id].team=data.team;remotePlayers[data.id].hasteActive=data.hasteActive;
+    remotePlayers[data.id].playerNumber=data.playerNumber;
+    updateTeamDisplay();
   }
 });
-socket.on('coreKicked', function(data) { core.vx=data.vx; core.vy=data.vy; });
-socket.on('paused', function(data) {
-  paused = data.paused;
-  var btn = document.getElementById('btn-pause');
-  btn.textContent = paused ? '▶ 再開' : '⏸ 一時停止';
-  btn.classList.toggle('active', paused);
+socket.on('coreKicked',function(data){core.vx=data.vx;core.vy=data.vy;});
+socket.on('paused',function(data){
+  paused=data.paused;var btn=document.getElementById('btn-pause');
+  btn.textContent=paused?'▶ 再開':'⏸ 一時停止';btn.classList.toggle('active',paused);
 });
-socket.on('projectileSpawned', function(data) {
-  projectiles.push({ x: data.x, y: data.y, vx: data.vx, vy: data.vy });
-});
-socket.on('hasteUsed', function(data) {
-  if (remotePlayers[data.id]) remotePlayers[data.id].hasteActive = true;
-});
+socket.on('projectileSpawned',function(data){projectiles.push({x:data.x,y:data.y,vx:data.vx,vy:data.vy});});
+socket.on('hasteUsed',function(data){if(remotePlayers[data.id])remotePlayers[data.id].hasteActive=true;});
 </script>
 </body>
 </html>
