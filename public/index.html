@@ -28,7 +28,7 @@ canvas { display: block; border-radius: 8px; cursor: crosshair; width: 100%; max
 </style>
 </head>
 <body>
-<div id="msg">WASD移動　クリックでキック　Shift:ヘイスト　R:発射</div>
+<div id="msg">WASD:move　LMB:kick　Shift:ヘイスト　R:発射</div>
 <div id="team-ui">
   <div class="team-block">
     <span class="team-label" style="color:#4a9fd4;">青チーム</span>
@@ -40,10 +40,10 @@ canvas { display: block; border-radius: 8px; cursor: crosshair; width: 100%; max
   </div>
 </div>
 <div id="controls">
-  <button id="btn-pause">⏸ 一時停止</button>
-  <button id="btn-add-blue">＋青AI</button>
-  <button id="btn-add-red">＋赤AI</button>
-  <button id="btn-remove-ai">－AI削除</button>
+  <button id="btn-pause">⏸ PAUSE</button>
+  <button id="btn-add-blue">＋BLUE AI</button>
+  <button id="btn-add-red">＋RED AI</button>
+  <button id="btn-remove-ai">－DELETE AI</button>
 </div>
 <div id="score">0 - 0</div>
 <canvas id="c"></canvas>
@@ -57,7 +57,7 @@ canvas { display: block; border-radius: 8px; cursor: crosshair; width: 100%; max
     <div class="cd-bar"><div class="cd-fill" id="shoot-cd" style="width:100%;background:#fa4;"></div></div>
   </div>
   <div id="size-wrap">
-    <label>サイズ: <span id="size-val">1.0</span>x</label>
+    <label>SIZE: <span id="size-val">1.0</span>x</label>
     <input type="range" id="size-slider" min="0.5" max="2" step="0.1" value="1">
   </div>
 </div>
@@ -255,7 +255,7 @@ function drawField(){
   }
   if(goalFlash>90){
     ctx.fillStyle='#fff';ctx.font='bold 36px sans-serif';ctx.textAlign='center';
-    ctx.fillText(goalTeam===0?'青チームの勝ちにゃ！🎉':'赤チームの勝ちにゃ！🎉',W/2,H/2-20);ctx.textAlign='left';
+    ctx.fillText(goalTeam===0?'BLUE TEAM WIN!':'RED TEAM WIN!',W/2,H/2-20);ctx.textAlign='left';
   }
   if(paused){
     ctx.fillStyle='rgba(0,0,0,0.35)';ctx.fillRect(0,0,W,H);
@@ -343,7 +343,7 @@ socket.on('playerMoved',function(data){
 socket.on('coreKicked',function(data){core.vx=data.vx;core.vy=data.vy;});
 socket.on('paused',function(data){
   paused=data.paused;var btn=document.getElementById('btn-pause');
-  btn.textContent=paused?'▶ 再開':'⏸ 一時停止';btn.classList.toggle('active',paused);
+  btn.textContent=paused?'▶ PLAY':'⏸ PAUSE';btn.classList.toggle('active',paused);
 });
 socket.on('projectileSpawned',function(data){projectiles.push({x:data.x,y:data.y,vx:data.vx,vy:data.vy});});
 socket.on('hasteUsed',function(data){if(remotePlayers[data.id])remotePlayers[data.id].hasteActive=true;});
