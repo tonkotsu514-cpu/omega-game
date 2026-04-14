@@ -25,10 +25,38 @@ canvas { display: block; border-radius: 8px; cursor: crosshair; width: 100%; max
 #size-wrap { display: flex; align-items: center; gap: 6px; }
 #size-wrap label { font-size: 11px; color: #aaa; white-space: nowrap; }
 #size-wrap input { width: 80px; }
+#skill-select {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.78); z-index: 20;
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.skill-panel {
+  width: min(760px,96vw); background: #1d2240; border: 1px solid #4e5a9a;
+  border-radius: 12px; padding: 14px; color: #d6dcff;
+}
+.skill-panel h2 { font-size: 18px; margin-bottom: 10px; text-align: center; }
+.skill-row { margin-bottom: 10px; }
+.skill-row h3 { font-size: 14px; margin-bottom: 6px; color: #a8b6ff; }
+.palette-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; }
+.skill-btn {
+  width: 100%; aspect-ratio: 1/1; text-align: center; background: #2a305c; color: #d6dcff;
+  border: 1px solid #5a67ad; border-radius: 9px; padding: 6px; cursor: pointer; font-size: 12px;
+  display: flex; align-items: center; justify-content: center; line-height: 1.2;
+  position: relative;
+}
+.skill-btn.active { background: #4a57a8; border-color: #9fb0ff; color: #fff; }
+.skill-name {
+  position: absolute; top: 8px; left: 8px; right: 8px;
+  font-size: 15px; font-weight: 700; text-align: center;
+}
+.skill-meta {
+  position: absolute; bottom: 8px; left: 8px; right: 8px;
+  font-size: 11px; color: #bfccff; text-align: center;
+}
+#skill-pick-note { font-size: 11px; color: #9ea7d8; margin: 8px 0; text-align: center; }
 </style>
 </head>
 <body>
-<div id="msg">WASD:move　LMB:kick　Shift:ヘイスト　R:発射</div>
+<div id="msg">WASD:move　LMB:Kick　Shift:Haste　R:Strike Shot</div>
 <div id="team-ui">
   <div class="team-block">
     <span class="team-label" style="color:#4a9fd4;">青チーム</span>
@@ -49,11 +77,11 @@ canvas { display: block; border-radius: 8px; cursor: crosshair; width: 100%; max
 <canvas id="c"></canvas>
 <div id="bottom-ui">
   <div class="cd-bar-wrap">
-    <span>ヘイスト(Shift)</span>
+    <span id="shift-label">Haste (Shift)</span>
     <div class="cd-bar"><div class="cd-fill" id="haste-cd" style="width:100%;background:#4af;"></div></div>
   </div>
   <div class="cd-bar-wrap">
-    <span>発射(R)</span>
+    <span id="r-label">Strike Shot (R)</span>
     <div class="cd-bar"><div class="cd-fill" id="shoot-cd" style="width:100%;background:#fa4;"></div></div>
   </div>
   <div id="size-wrap">
@@ -61,10 +89,34 @@ canvas { display: block; border-radius: 8px; cursor: crosshair; width: 100%; max
     <input type="range" id="size-slider" min="0.5" max="2" step="0.1" value="1">
   </div>
 </div>
+<div id="skill-select">
+  <div class="skill-panel">
+    <h2>入室前にスキル選択</h2>
+    <div class="skill-row">
+      <h3>Rスキル (上段から1つ選択)</h3>
+      <div class="palette-grid">
+        <button class="skill-btn" data-r-skill="strikeShot"><span class="skill-name">Strike Shot</span><span class="skill-meta">CD 5s</span></button>
+        <button class="skill-btn" data-r-skill="debuffKick"><span class="skill-name">Hex Core</span><span class="skill-meta">CD 7s</span></button>
+        <button class="skill-btn" data-r-skill="guardWall"><span class="skill-name">Guard Wall</span><span class="skill-meta">CD 7s</span></button>
+        <button class="skill-btn" data-r-skill="coreGuard"><span class="skill-name">Core Guard</span><span class="skill-meta">CD 5s</span></button>
+      </div>
+    </div>
+    <div class="skill-row">
+      <h3>Shiftスキル (下段から1つ選択)</h3>
+      <div class="palette-grid">
+        <button class="skill-btn" data-shift-skill="blink"><span class="skill-name">Blink</span><span class="skill-meta">CD 5s</span></button>
+        <button class="skill-btn" data-shift-skill="giant"><span class="skill-name">Giant</span><span class="skill-meta">CD 6s / 1s</span></button>
+        <button class="skill-btn" data-shift-skill="rushLock"><span class="skill-name">Rush Lock</span><span class="skill-meta">CD 7s / 2s</span></button>
+        <button class="skill-btn" data-shift-skill="haste"><span class="skill-name">Haste</span><span class="skill-meta">CD 7s</span></button>
+      </div>
+    </div>
+    <div id="skill-pick-note">RとShiftを1つ選んだ瞬間に入室するにゃ</div>
+  </div>
+</div>
 <script src="/socket.io/socket.io.js"></script>
 <script>
-var W=640,H=400,GOAL_W=18,GOAL_H=180,CORE_R=14,PLAYER_R=18,FRICTION=0.992,KICK_FORCE=5.1,PLAYER_SPEED=2.4,HASTE_SPEED=3.8,KICK_RANGE=PLAYER_R+CORE_R+20,HASTE_DURATION=3000,HASTE_CD=13000,SHOOT_CD=11000,SHOOT_FORCE=7,SHOOT_R=5,AI_HASTE_CD=13000;
-var score=[0,0],keys={},goalFlash=0,goalTeam=-1,mouseX=W/2,mouseY=H/2,core,players,projectiles=[],remotePlayers={},isHost=false,paused=false,dragTarget=null,dragOffX=0,dragOffY=0,playerSize=1.0,lastTime=0,hasteCdLeft=0,hasteActive=false,hasteEnd=0,shootCdLeft=0,myPlayerNumber=1;
+var W=640,H=400,GOAL_W=18,GOAL_H=180,CORE_R=14,PLAYER_R=18,FRICTION=0.992,KICK_FORCE=5.1,PLAYER_SPEED=2.4,HASTE_SPEED=3.8,KICK_RANGE=PLAYER_R+CORE_R+10,HASTE_DURATION=3000,HASTE_CD=7000,BLINK_CD=5000,GIANT_CD=6000,RUSH_LOCK_CD=7000,GIANT_DURATION=1000,RUSH_LOCK_DURATION=2000,BLINK_DISTANCE=72,RUSH_SPEED_MULT=2.3,GIANT_MULT=1.8,SHOOT_CD=5000,DEBUFF_KICK_CD=7000,WALL_CD=7000,CORE_GUARD_CD=5000,KICK_CD=900,SHOOT_FORCE=7,SHOOT_R=5,AI_HASTE_CD=13000,WALL_DURATION=4000,WALL_WIDTH=PLAYER_R*2,WALL_HEIGHT=PLAYER_R*6,CORE_DEBUFF_MS=2000,DEBUFF_STUN_MS=1000,CORE_GUARD_MS=5000,AI_SPEED_MULT=1.14,AI_ACCEL=0.5;
+var score=[0,0],keysByCode={},goalFlash=0,goalTeam=-1,mouseX=W/2,mouseY=H/2,core,players,projectiles=[],remotePlayers={},isHost=false,paused=false,dragTarget=null,dragOffX=0,dragOffY=0,playerSize=1.0,lastTime=0,shiftCdLeft=0,hasteActive=false,hasteEnd=0,giantUntil=0,rushLockUntil=0,rSkillCdLeft=0,kickCdLeft=0,myPlayerNumber=1,selectedRSkill='',selectedShiftSkill='',coreDebuffUntil=0,coreDebuffTeam=-1,localDisabledUntil=0,coreGuardUntil=0,walls=[],socket=null;
 var canvas=document.getElementById('c'),ctx=canvas.getContext('2d');
 canvas.width=W;canvas.height=H;
 
@@ -90,40 +142,185 @@ function checkWin(){
 }
 
 function makeCore(){return{x:W/2,y:H/2,vx:0,vy:0};}
+function randomAiRSkill(){
+  var skills=['strikeShot','debuffKick','guardWall','coreGuard'];
+  return skills[Math.floor(Math.random()*skills.length)];
+}
+function randomAiShiftSkill(){
+  var skills=['blink','giant','rushLock','haste'];
+  return skills[Math.floor(Math.random()*skills.length)];
+}
 function makePlayer(x,y,color,team,isPlayer){
-  return{x:x,y:y,vx:0,vy:0,color:color,team:team,isPlayer:isPlayer,hasteActive:false,hasteEnd:0,hasteCdLeft:0,aiHasteCd:Math.random()*AI_HASTE_CD};
+  return{x:x,y:y,vx:0,vy:0,color:color,team:team,isPlayer:isPlayer,hasteActive:false,hasteEnd:0,hasteCdLeft:0,aiHasteCd:Math.random()*AI_HASTE_CD,aiState:'chase',aiRSkill:randomAiRSkill(),aiShiftSkill:randomAiShiftSkill(),aiRcdLeft:Math.random()*2200,aiShiftCdLeft:Math.random()*1600,disabledUntil:0,coreGuardUntil:0,pendingDebuffKick:false,giantUntil:0,rushUntil:0};
 }
 function makePlayers(){return[makePlayer(160,H/2,'#4a9fd4',0,true),makePlayer(W-160,H/2,'#e05a5a',1,false)];}
 function reset(){
   core=makeCore();core.vx=(Math.random()-0.5)*1.65;core.vy=(Math.random()-0.5)*1.65;
   players.forEach(function(p){p.x=p.team===0?160:W-160;p.y=H/2;p.vx=0;p.vy=0;});
   projectiles=[];
+  walls=[];
+  coreDebuffUntil=0;coreDebuffTeam=-1;
+  giantUntil=0;rushLockUntil=0;
 }
 function fullReset(){
   players=makePlayers();core=makeCore();
-  core.vx=(Math.random()-0.5)*1.65;core.vy=(Math.random()-0.5)*1.65;projectiles=[];
+  core.vx=(Math.random()-0.5)*1.65;core.vy=(Math.random()-0.5)*1.65;projectiles=[];walls=[];
+  coreDebuffUntil=0;coreDebuffTeam=-1;
+  giantUntil=0;rushLockUntil=0;
 }
 function dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y);}
 
-document.addEventListener('keydown',function(e){
-  keys[e.key]=true;
-  var nav=['w','a','s','d','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'];
-  if(nav.indexOf(e.key)>=0)e.preventDefault();
-  if(e.key==='Shift'&&hasteCdLeft<=0&&!hasteActive){
-    hasteActive=true;hasteEnd=performance.now()+HASTE_DURATION;hasteCdLeft=HASTE_CD;
-    if(typeof socket!=='undefined'&&socket.connected)socket.emit('haste',{id:socket.id});
+function clearInputState(){
+  keysByCode={};
+}
+function getRSkillCd(skill){
+  if(skill==='debuffKick')return DEBUFF_KICK_CD;
+  if(skill==='guardWall')return WALL_CD;
+  if(skill==='coreGuard')return CORE_GUARD_CD;
+  return SHOOT_CD;
+}
+function getShiftSkillCd(skill){
+  if(skill==='blink')return BLINK_CD;
+  if(skill==='giant')return GIANT_CD;
+  if(skill==='rushLock')return RUSH_LOCK_CD;
+  return HASTE_CD;
+}
+function localSizeMultiplier(){
+  return performance.now()<giantUntil?GIANT_MULT:1;
+}
+function rushLockActive(){
+  return performance.now()<rushLockUntil;
+}
+function selectedRSkillLabel(skill){
+  if(!skill)return'R Skill (未選択)';
+  if(skill==='debuffKick')return'Hex Core (R)';
+  if(skill==='guardWall')return'Guard Wall (R)';
+  if(skill==='coreGuard')return'Core Guard (R)';
+  return'Strike Shot (R)';
+}
+function selectedShiftSkillLabel(skill){
+  if(!skill)return'Shift Skill (未選択)';
+  if(skill==='blink')return'Blink (Shift)';
+  if(skill==='giant')return'Giant (Shift)';
+  if(skill==='rushLock')return'Rush Lock (Shift)';
+  if(skill==='haste')return'Haste (Shift)';
+  return'Coming Soon (Shift)';
+}
+function activateShiftSkill(){
+  var p=players[0];
+  if(selectedShiftSkill==='blink'){
+    var dx=mouseX-p.x,dy=mouseY-p.y,len=Math.hypot(dx,dy)||1;
+    var move=BLINK_DISTANCE*localSizeMultiplier();
+    var pr=PLAYER_R*playerSize*localSizeMultiplier();
+    p.x=clamp(p.x+(dx/len)*move,pr,W-pr);
+    p.y=clamp(p.y+(dy/len)*move,pr,H-pr);
+    return;
   }
-  if(e.key==='r'||e.key==='R'){
-    if(shootCdLeft<=0){
-      shootCdLeft=SHOOT_CD;var p=players[0];
-      var dx=mouseX-p.x,dy=mouseY-p.y,len=Math.hypot(dx,dy)||1;
-      var proj={x:p.x,y:p.y,vx:(dx/len)*SHOOT_FORCE,vy:(dy/len)*SHOOT_FORCE};
-      projectiles.push(proj);
-      if(typeof socket!=='undefined'&&socket.connected)socket.emit('shoot',{x:proj.x,y:proj.y,vx:proj.vx,vy:proj.vy});
+  if(selectedShiftSkill==='giant'){
+    giantUntil=performance.now()+GIANT_DURATION;
+    return;
+  }
+  if(selectedShiftSkill==='rushLock'){
+    rushLockUntil=performance.now()+RUSH_LOCK_DURATION;
+    return;
+  }
+  hasteActive=true;hasteEnd=performance.now()+HASTE_DURATION;
+  if(socket&&socket.connected)socket.emit('haste',{id:socket.id});
+}
+function applyCoreKick(vx,vy,kickerTeam,kickerRef,kickerId,canConsumeDebuff){
+  core.vx=vx;core.vy=vy;
+  var debuffTriggered=false;
+  if(canConsumeDebuff&&kickerRef&&kickerRef.pendingDebuffKick){
+    coreDebuffUntil=performance.now()+CORE_DEBUFF_MS;
+    coreDebuffTeam=kickerTeam;
+    kickerRef.pendingDebuffKick=false;
+    debuffTriggered=true;
+  }else if(coreDebuffUntil>performance.now()&&kickerTeam!==coreDebuffTeam){
+    if(kickerRef){kickerRef.disabledUntil=performance.now()+DEBUFF_STUN_MS;}
+    if(kickerId&&remotePlayers[kickerId])remotePlayers[kickerId].disabledUntil=performance.now()+DEBUFF_STUN_MS;
+    if(kickerRef&&kickerRef.isPlayer)localDisabledUntil=Math.max(localDisabledUntil,performance.now()+DEBUFF_STUN_MS);
+    coreDebuffUntil=0;coreDebuffTeam=-1;
+  }
+  if(socket&&socket.connected)socket.emit('coreKick',{vx:core.vx,vy:core.vy,team:kickerTeam,kickerId:kickerId||null,debuffTriggered:debuffTriggered,debuffTeam:kickerTeam});
+}
+function spawnWall(owner,ownerId,isRemote){
+  var tx=owner.isPlayer?mouseX:core.x,ty=owner.isPlayer?mouseY:core.y;
+  var dx=tx-owner.x,dy=ty-owner.y,len=Math.hypot(dx,dy)||1;
+  var wall={x:owner.x+(dx/len)*78,y:owner.y+(dy/len)*78,w:WALL_WIDTH,h:WALL_HEIGHT,expiresAt:performance.now()+WALL_DURATION,team:owner.team};
+  walls.push(wall);
+  if(!isRemote&&socket&&socket.connected)socket.emit('skillEvent',{type:'wall',x:wall.x,y:wall.y,team:owner.team});
+}
+function activateRSkill(player,skillName,isAi,remoteId){
+  if(skillName==='debuffKick'){player.pendingDebuffKick=true;return;}
+  if(skillName==='guardWall'){spawnWall(player,remoteId,false);return;}
+  if(skillName==='coreGuard'){
+    player.coreGuardUntil=performance.now()+CORE_GUARD_MS;
+    if(player.isPlayer)coreGuardUntil=player.coreGuardUntil;
+    return;
+  }
+  var dx=mouseX-player.x,dy=mouseY-player.y,len=Math.hypot(dx,dy)||1;
+  var proj={x:player.x,y:player.y,vx:(dx/len)*SHOOT_FORCE,vy:(dy/len)*SHOOT_FORCE};
+  projectiles.push(proj);
+  if(socket&&socket.connected)socket.emit('shoot',{x:proj.x,y:proj.y,vx:proj.vx,vy:proj.vy});
+}
+function resolveCircleWallCollision(obj,radius,reflectLikeWall){
+  for(var i=walls.length-1;i>=0;i--){
+    var wall=walls[i];
+    if(wall.expiresAt<=performance.now()){walls.splice(i,1);continue;}
+    var nearestX=clamp(obj.x,wall.x-wall.w/2,wall.x+wall.w/2);
+    var nearestY=clamp(obj.y,wall.y-wall.h/2,wall.y+wall.h/2);
+    var dx=obj.x-nearestX,dy=obj.y-nearestY,distSq=dx*dx+dy*dy;
+    if(distSq<radius*radius){
+      var dist=Math.sqrt(distSq)||0.001;
+      var nx=dx/dist,ny=dy/dist,push=radius-dist;
+      obj.x+=nx*push;obj.y+=ny*push;
+      if(reflectLikeWall&&obj.vx!==undefined&&obj.vy!==undefined){
+        var dot=obj.vx*nx+obj.vy*ny;
+        if(dot<0){
+          obj.vx=(obj.vx-2*dot*nx)*0.8;
+          obj.vy=(obj.vy-2*dot*ny)*0.8;
+        }
+      }else{
+        if(obj.vx!==undefined)obj.vx*=0.55;
+        if(obj.vy!==undefined)obj.vy*=0.55;
+      }
+    }
+  }
+}
+function resolveCoreGuardCollision(player,delta){
+  var guardUntil=player.isPlayer?coreGuardUntil:player.coreGuardUntil;
+  if(guardUntil<=performance.now())return;
+  var pr=player.isPlayer?PLAYER_R*playerSize:PLAYER_R;
+  var dx=core.x-player.x,dy=core.y-player.y,d=Math.hypot(dx,dy)||0.001,minDist=pr+CORE_R;
+  if(d<minDist){
+    var nx=dx/d,ny=dy/d,overlap=minDist-d;
+    core.x+=nx*overlap;core.y+=ny*overlap;
+    var pushStrength=0.22*delta;
+    core.vx+=nx*pushStrength*(Math.hypot(player.vx,player.vy)+2);
+    core.vy+=ny*pushStrength*(Math.hypot(player.vx,player.vy)+2);
+  }
+}
+
+document.addEventListener('keydown',function(e){
+  keysByCode[e.code]=true;
+  var nav=['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'];
+  if(nav.indexOf(e.code)>=0)e.preventDefault();
+  if((e.code==='ShiftLeft'||e.code==='ShiftRight')&&selectedShiftSkill&&shiftCdLeft<=0&&performance.now()>localDisabledUntil&&!rushLockActive()){
+    shiftCdLeft=getShiftSkillCd(selectedShiftSkill);
+    activateShiftSkill();
+  }
+  if(e.code==='KeyR'){
+    if(rSkillCdLeft<=0&&performance.now()>localDisabledUntil&&!rushLockActive()){
+      rSkillCdLeft=getRSkillCd(selectedRSkill);
+      activateRSkill(players[0],selectedRSkill,false,socket?socket.id:null);
     }
   }
 });
-document.addEventListener('keyup',function(e){keys[e.key]=false;});
+document.addEventListener('keyup',function(e){keysByCode[e.code]=false;});
+window.addEventListener('blur',clearInputState);
+document.addEventListener('visibilitychange',function(){
+  if(document.hidden)clearInputState();
+});
 
 document.addEventListener('mousemove',function(e){
   var rect=canvas.getBoundingClientRect(),scaleX=W/rect.width;
@@ -138,11 +335,12 @@ document.addEventListener('mousedown',function(e){
   var rect=canvas.getBoundingClientRect(),scaleX=W/rect.width;
   var mx=(e.clientX-rect.left)*scaleX,my=(e.clientY-rect.top)*scaleX;
   if(!paused){
-    var p=players[0],pr=PLAYER_R*playerSize,d=Math.hypot(p.x-core.x,p.y-core.y);
-    if(d<pr+CORE_R+60){
+    if(performance.now()<=localDisabledUntil||rushLockActive())return;
+    var p=players[0],pr=PLAYER_R*playerSize*localSizeMultiplier(),d=Math.hypot(p.x-core.x,p.y-core.y);
+    if(kickCdLeft<=0&&d<pr+CORE_R+24){
+      kickCdLeft=KICK_CD;
       var dx=mx-core.x,dy=my-core.y,len=Math.hypot(dx,dy)||1;
-      core.vx=(dx/len)*KICK_FORCE;core.vy=(dy/len)*KICK_FORCE;
-      if(typeof socket!=='undefined'&&socket.connected)socket.emit('coreKick',{vx:core.vx,vy:core.vy});
+      applyCoreKick((dx/len)*KICK_FORCE,(dy/len)*KICK_FORCE,p.team,p,socket?socket.id:null,true);
     }
     return;
   }
@@ -156,7 +354,7 @@ document.addEventListener('mouseup',function(){dragTarget=null;});
 
 document.getElementById('btn-pause').addEventListener('click',function(){
   paused=!paused;this.textContent=paused?'▶ 再開':'⏸ 一時停止';this.classList.toggle('active',paused);
-  if(typeof socket!=='undefined'&&socket.connected)socket.emit('pause',{paused:paused});
+  if(socket&&socket.connected)socket.emit('pause',{paused:paused});
 });
 document.getElementById('btn-add-blue').addEventListener('click',function(){
   players.push(makePlayer(160+Math.random()*80,H/2+(Math.random()-0.5)*100,'#4a9fd4',0,false));
@@ -171,40 +369,128 @@ document.getElementById('size-slider').addEventListener('input',function(){
   playerSize=parseFloat(this.value);document.getElementById('size-val').textContent=playerSize.toFixed(1);
 });
 
-function aiMove(ai,delta){
-  var speed=ai.hasteActive?HASTE_SPEED:PLAYER_SPEED;
-  ai.aiHasteCd-=delta*16.67;
-  if(ai.aiHasteCd<=0&&!ai.hasteActive){ai.hasteActive=true;ai.hasteEnd=performance.now()+HASTE_DURATION;ai.aiHasteCd=AI_HASTE_CD+Math.random()*5000;}
-  if(ai.hasteActive&&performance.now()>ai.hasteEnd)ai.hasteActive=false;
-  var tx=ai.team===1?core.x+70:core.x-70,ty=core.y,dx=tx-ai.x,dy=ty-ai.y,d=Math.hypot(dx,dy);
-  if(d>4){ai.vx+=(dx/d)*0.35*delta;ai.vy+=(dy/d)*0.35*delta;}
-  var spd=Math.hypot(ai.vx,ai.vy);if(spd>speed){ai.vx=ai.vx/spd*speed;ai.vy=ai.vy/spd*speed;}
-  if(dist(ai,core)<KICK_RANGE&&Math.random()<0.02){
-    var goalX=ai.team===1?W*0.05:W*0.95,nx=goalX-core.x,ny=H/2-core.y,len=Math.hypot(nx,ny)||1;
-    core.vx=(nx/len)*KICK_FORCE;core.vy=(ny/len)*KICK_FORCE;
-    if(typeof socket!=='undefined'&&socket.connected)socket.emit('coreKick',{vx:core.vx,vy:core.vy});
+function clamp(v,min,max){return Math.max(min,Math.min(max,v));}
+function aiRole(ai){
+  var allies=players.filter(function(p){return !p.isPlayer&&p.team===ai.team;});
+  if(allies.length<=1)return'attacker';
+  return allies.indexOf(ai)===0?'attacker':'defender';
+}
+function predictCorePosition(framesAhead){
+  var t=clamp(framesAhead,0,60);
+  return{
+    x:clamp(core.x+core.vx*t,CORE_R+GOAL_W,W-CORE_R-GOAL_W),
+    y:clamp(core.y+core.vy*t,CORE_R,H-CORE_R)
+  };
+}
+function aiTargetForState(ai,state){
+  var role=aiRole(ai),future=predictCorePosition(role==='attacker'?24:16);
+  var defendX=ai.team===0?Math.max(120,GOAL_W+80):Math.min(W-120,W-GOAL_W-80);
+  if(state==='defend')return{x:defendX,y:future.y};
+  if(state==='shoot'){
+    var behindX=ai.team===0?future.x-34:future.x+34;
+    return{x:clamp(behindX,60,W-60),y:future.y};
   }
+  return future;
+}
+function chooseAiState(ai){
+  var ownGoalX=ai.team===0?GOAL_W:W-GOAL_W;
+  var attackGoalX=ai.team===0?W-GOAL_W:GOAL_W;
+  var distToCore=Math.hypot(ai.x-core.x,ai.y-core.y);
+  var coreNearOwnGoal=Math.abs(core.x-ownGoalX)<140;
+  var hasShotLane=Math.abs(core.y-H/2)<95&&Math.abs(core.x-attackGoalX)<250;
+  if(coreNearOwnGoal)return'defend';
+  if(distToCore<KICK_RANGE+16&&hasShotLane)return'shoot';
+  return'chase';
+}
+function aiTryKick(ai){
+  if(dist(ai,core)>KICK_RANGE)return;
+  var targetX=ai.team===0?W*0.96:W*0.04;
+  var targetY=H/2;
+  var toGoalX=targetX-core.x,toGoalY=targetY-core.y;
+  var len=Math.hypot(toGoalX,toGoalY)||1;
+  var laneBias=Math.abs(core.y-H/2)<GOAL_H*0.52?1.0:0.78;
+  var closeBoost=dist(ai,core)<KICK_RANGE*0.82?1.08:1.0;
+  applyCoreKick((toGoalX/len)*KICK_FORCE*laneBias*closeBoost,(toGoalY/len)*KICK_FORCE*laneBias*closeBoost,ai.team,ai,null,true);
+}
+function aiActivateShift(ai,target){
+  if(ai.aiShiftSkill==='blink'){
+    var dx=target.x-ai.x,dy=target.y-ai.y,len=Math.hypot(dx,dy)||1;
+    ai.x=clamp(ai.x+(dx/len)*BLINK_DISTANCE,PLAYER_R,W-PLAYER_R);
+    ai.y=clamp(ai.y+(dy/len)*BLINK_DISTANCE,PLAYER_R,H-PLAYER_R);
+    return;
+  }
+  if(ai.aiShiftSkill==='giant'){ai.giantUntil=performance.now()+GIANT_DURATION;return;}
+  if(ai.aiShiftSkill==='rushLock'){ai.rushUntil=performance.now()+RUSH_LOCK_DURATION;return;}
+  ai.hasteActive=true;ai.hasteEnd=performance.now()+HASTE_DURATION;
+}
+function aiTryUseSkills(ai,target){
+  var now=performance.now();
+  if(ai.aiShiftCdLeft<=0){
+    var urgentDefend=Math.abs(core.x-(ai.team===0?GOAL_W:W-GOAL_W))<130;
+    var closeToCore=dist(ai,core)<120;
+    if(urgentDefend||closeToCore){
+      ai.aiShiftCdLeft=getShiftSkillCd(ai.aiShiftSkill);
+      aiActivateShift(ai,target);
+    }
+  }
+  if(ai.aiRcdLeft<=0){
+    var canUseR=Math.random()<0.03||dist(ai,core)<KICK_RANGE+22;
+    if(canUseR&&now>ai.rushUntil){
+      ai.aiRcdLeft=getRSkillCd(ai.aiRSkill);
+      activateRSkill(ai,ai.aiRSkill,true,null);
+    }
+  }
+}
+function aiMove(ai,delta){
+  if(ai.disabledUntil>performance.now()){ai.vx=0;ai.vy=0;return;}
+  var now=performance.now();
+  var rushing=now<ai.rushUntil;
+  var speed=ai.hasteActive?HASTE_SPEED:PLAYER_SPEED;
+  if(rushing)speed=PLAYER_SPEED*RUSH_SPEED_MULT;
+  speed*=AI_SPEED_MULT;
+  if(ai.aiRcdLeft>0)ai.aiRcdLeft=Math.max(0,ai.aiRcdLeft-delta*16.67);
+  if(ai.aiShiftCdLeft>0)ai.aiShiftCdLeft=Math.max(0,ai.aiShiftCdLeft-delta*16.67);
+  ai.aiHasteCd-=delta*16.67;
+  if(ai.aiHasteCd<=0&&!ai.hasteActive&&ai.aiShiftSkill==='haste'){ai.hasteActive=true;ai.hasteEnd=now+HASTE_DURATION;ai.aiHasteCd=AI_HASTE_CD+Math.random()*5000;}
+  if(ai.hasteActive&&performance.now()>ai.hasteEnd)ai.hasteActive=false;
+  ai.aiState=chooseAiState(ai);
+  var target=aiTargetForState(ai,ai.aiState);
+  aiTryUseSkills(ai,target);
+  var tx=target.x,ty=target.y,dx=tx-ai.x,dy=ty-ai.y,d=Math.hypot(dx,dy);
+  if(d>4){ai.vx+=(dx/d)*AI_ACCEL*delta;ai.vy+=(dy/d)*AI_ACCEL*delta;}
+  var spd=Math.hypot(ai.vx,ai.vy);if(spd>speed){ai.vx=ai.vx/spd*speed;ai.vy=ai.vy/spd*speed;}
+  if(rushing)return;
+  if(ai.aiState==='shoot'){aiTryKick(ai);return;}
+  if(dist(ai,core)<KICK_RANGE&&Math.random()<0.03)aiTryKick(ai);
 }
 
 function updatePlayer(p,delta){
-  var pr=p.isPlayer?PLAYER_R*playerSize:PLAYER_R;
+  var aiSizeMult=!p.isPlayer&&performance.now()<p.giantUntil?GIANT_MULT:1;
+  var pr=p.isPlayer?PLAYER_R*playerSize*localSizeMultiplier():PLAYER_R*aiSizeMult;
   if(p.isPlayer){
+    if(performance.now()<=localDisabledUntil){p.vx=0;p.vy=0;}
     if(hasteActive&&performance.now()>hasteEnd)hasteActive=false;
     var speed=hasteActive?HASTE_SPEED:PLAYER_SPEED;
-    if(keys['w']||keys['ArrowUp'])p.vy-=speed*delta;
-    if(keys['s']||keys['ArrowDown'])p.vy+=speed*delta;
-    if(keys['a']||keys['ArrowLeft'])p.vx-=speed*delta;
-    if(keys['d']||keys['ArrowRight'])p.vx+=speed*delta;
+    if(rushLockActive())speed=PLAYER_SPEED*RUSH_SPEED_MULT;
+    if(performance.now()>localDisabledUntil){
+      if(keysByCode['KeyW']||keysByCode['ArrowUp'])p.vy-=speed*delta;
+      if(keysByCode['KeyS']||keysByCode['ArrowDown'])p.vy+=speed*delta;
+      if(keysByCode['KeyA']||keysByCode['ArrowLeft'])p.vx-=speed*delta;
+      if(keysByCode['KeyD']||keysByCode['ArrowRight'])p.vx+=speed*delta;
+    }
     var spd=Math.hypot(p.vx,p.vy);if(spd>speed){p.vx=p.vx/spd*speed;p.vy=p.vy/spd*speed;}
   }else{aiMove(p,delta);}
   p.vx*=Math.pow(0.75,delta);p.vy*=Math.pow(0.75,delta);
   p.x+=p.vx*delta;p.y+=p.vy*delta;
   p.x=Math.max(pr,Math.min(W-pr,p.x));p.y=Math.max(pr,Math.min(H-pr,p.y));
+  resolveCircleWallCollision(p,pr,false);
+  resolveCoreGuardCollision(p,delta);
 }
 
 function updateCore(delta){
   core.vx*=Math.pow(FRICTION,delta);core.vy*=Math.pow(FRICTION,delta);
   core.x+=core.vx*delta;core.y+=core.vy*delta;
+  resolveCircleWallCollision(core,CORE_R,true);
   if(core.y-CORE_R<0){core.y=CORE_R;core.vy*=-0.8;}
   if(core.y+CORE_R>H){core.y=H-CORE_R;core.vy*=-0.8;}
   var gT=(H-GOAL_H)/2,gB=gT+GOAL_H;
@@ -221,11 +507,11 @@ function updateCore(delta){
 function updateProjectiles(delta){
   for(var i=projectiles.length-1;i>=0;i--){
     var proj=projectiles[i];proj.x+=proj.vx*delta;proj.y+=proj.vy*delta;
+    resolveCircleWallCollision(proj,SHOOT_R,false);
     if(proj.x<0||proj.x>W||proj.y<0||proj.y>H){projectiles.splice(i,1);continue;}
     if(Math.hypot(proj.x-core.x,proj.y-core.y)<CORE_R+SHOOT_R){
       var dx=core.x-proj.x,dy=core.y-proj.y,len=Math.hypot(dx,dy)||1;
-      core.vx=(dx/len)*KICK_FORCE;core.vy=(dy/len)*KICK_FORCE;
-      if(typeof socket!=='undefined'&&socket.connected)socket.emit('coreKick',{vx:core.vx,vy:core.vy});
+      applyCoreKick((dx/len)*KICK_FORCE,(dy/len)*KICK_FORCE,players[0].team,players[0],socket?socket.id:null,false);
       projectiles.splice(i,1);
     }
   }
@@ -233,10 +519,11 @@ function updateProjectiles(delta){
 
 function updateCooldowns(delta){
   var dt=delta*16.67;
-  if(hasteCdLeft>0)hasteCdLeft=Math.max(0,hasteCdLeft-dt);
-  if(shootCdLeft>0)shootCdLeft=Math.max(0,shootCdLeft-dt);
-  document.getElementById('haste-cd').style.width=(hasteCdLeft<=0?100:(1-hasteCdLeft/HASTE_CD)*100)+'%';
-  document.getElementById('shoot-cd').style.width=(shootCdLeft<=0?100:(1-shootCdLeft/SHOOT_CD)*100)+'%';
+  if(kickCdLeft>0)kickCdLeft=Math.max(0,kickCdLeft-dt);
+  if(shiftCdLeft>0)shiftCdLeft=Math.max(0,shiftCdLeft-dt);
+  if(rSkillCdLeft>0)rSkillCdLeft=Math.max(0,rSkillCdLeft-dt);
+  document.getElementById('haste-cd').style.width=(shiftCdLeft<=0?100:(1-shiftCdLeft/getShiftSkillCd(selectedShiftSkill))*100)+'%';
+  document.getElementById('shoot-cd').style.width=(rSkillCdLeft<=0?100:(1-rSkillCdLeft/getRSkillCd(selectedRSkill))*100)+'%';
 }
 
 function drawField(){
@@ -262,6 +549,18 @@ function drawField(){
     ctx.fillStyle='#fff';ctx.font='bold 32px sans-serif';ctx.textAlign='center';
     ctx.fillText('PAUSED',W/2,H/2);ctx.textAlign='left';
   }
+  if(coreDebuffUntil>performance.now()){
+    ctx.beginPath();ctx.arc(core.x,core.y,CORE_R+6,0,Math.PI*2);
+    ctx.strokeStyle='rgba(180,120,255,0.95)';ctx.lineWidth=2.5;ctx.stroke();
+  }
+  for(var i=0;i<walls.length;i++){
+    var wall=walls[i];
+    if(wall.expiresAt<=performance.now())continue;
+    ctx.fillStyle='rgba(140,180,255,0.25)';
+    ctx.fillRect(wall.x-wall.w/2,wall.y-wall.h/2,wall.w,wall.h);
+    ctx.strokeStyle='rgba(185,220,255,0.9)';
+    ctx.strokeRect(wall.x-wall.w/2,wall.y-wall.h/2,wall.w,wall.h);
+  }
 }
 
 function drawCore(){
@@ -270,12 +569,33 @@ function drawCore(){
 }
 
 function drawPlayer(p){
-  var pr=p.isPlayer?PLAYER_R*playerSize:PLAYER_R;
+  var aiSizeMult=!p.isPlayer&&performance.now()<p.giantUntil?GIANT_MULT:1;
+  var pr=p.isPlayer?PLAYER_R*playerSize*localSizeMultiplier():PLAYER_R*aiSizeMult;
+  var isRushing=p.isPlayer?rushLockActive():performance.now()<p.rushUntil;
+  var hasHexBuff=!!p.pendingDebuffKick;
   if(p.isPlayer?hasteActive:p.hasteActive){
     ctx.beginPath();ctx.arc(p.x,p.y,pr+6,0,Math.PI*2);ctx.strokeStyle='rgba(100,200,255,0.8)';ctx.lineWidth=3;ctx.stroke();
   }
   ctx.beginPath();ctx.arc(p.x,p.y,pr,0,Math.PI*2);ctx.fillStyle=p.color;ctx.fill();
+  if(isRushing){
+    ctx.beginPath();ctx.arc(p.x,p.y,pr,0,Math.PI*2);
+    ctx.fillStyle='rgba(255,255,255,0.28)';ctx.fill();
+  }
+  if(hasHexBuff){
+    ctx.beginPath();ctx.arc(p.x,p.y,pr,0,Math.PI*2);
+    ctx.fillStyle='rgba(0,0,0,0.28)';ctx.fill();
+  }
   ctx.strokeStyle='rgba(255,255,255,0.8)';ctx.lineWidth=2;ctx.stroke();
+  var disabledUntil=p.isPlayer?localDisabledUntil:p.disabledUntil;
+  if(disabledUntil>performance.now()){
+    ctx.beginPath();ctx.arc(p.x,p.y,pr+4,0,Math.PI*2);
+    ctx.strokeStyle='rgba(255,120,120,0.95)';ctx.lineWidth=2.5;ctx.stroke();
+  }
+  var guardUntil=p.isPlayer?coreGuardUntil:p.coreGuardUntil;
+  if(guardUntil>performance.now()){
+    ctx.beginPath();ctx.arc(p.x,p.y,pr+8,0,Math.PI*2);
+    ctx.strokeStyle='rgba(120,255,210,0.9)';ctx.lineWidth=2.5;ctx.stroke();
+  }
   if(p.isPlayer&&dist(p,core)<pr+CORE_R+20){
     ctx.beginPath();ctx.arc(p.x,p.y,pr+5,0,Math.PI*2);ctx.strokeStyle='rgba(255,255,100,0.9)';ctx.lineWidth=2;ctx.stroke();
     ctx.save();ctx.setLineDash([4,4]);ctx.beginPath();ctx.moveTo(core.x,core.y);ctx.lineTo(mouseX,mouseY);
@@ -299,7 +619,10 @@ function drawRemotePlayers(){
     var rp=remotePlayers[id],col=rp.team===0?'#4a9fd4':'#e05a5a';
     if(rp.hasteActive){ctx.beginPath();ctx.arc(rp.x,rp.y,PLAYER_R+6,0,Math.PI*2);ctx.strokeStyle='rgba(100,200,255,0.8)';ctx.lineWidth=3;ctx.stroke();}
     ctx.beginPath();ctx.arc(rp.x,rp.y,PLAYER_R,0,Math.PI*2);ctx.fillStyle=col;ctx.fill();
+    if(rp.rushLockActive){ctx.beginPath();ctx.arc(rp.x,rp.y,PLAYER_R,0,Math.PI*2);ctx.fillStyle='rgba(255,255,255,0.28)';ctx.fill();}
+    if(rp.pendingDebuffKick){ctx.beginPath();ctx.arc(rp.x,rp.y,PLAYER_R,0,Math.PI*2);ctx.fillStyle='rgba(0,0,0,0.28)';ctx.fill();}
     ctx.strokeStyle='rgba(255,255,255,0.8)';ctx.lineWidth=2;ctx.stroke();
+    if(rp.disabledUntil>performance.now()){ctx.beginPath();ctx.arc(rp.x,rp.y,PLAYER_R+4,0,Math.PI*2);ctx.strokeStyle='rgba(255,120,120,0.95)';ctx.lineWidth=2.5;ctx.stroke();}
   });
 }
 
@@ -307,46 +630,94 @@ function loop(timestamp){
   var delta=lastTime===0?1:Math.min((timestamp-lastTime)/16.67,3);lastTime=timestamp;
   if(!paused){players.forEach(function(p){updatePlayer(p,delta);});updateCore(delta);updateProjectiles(delta);}
   updateCooldowns(delta);
-  if(typeof socket!=='undefined'&&socket.connected){
-    socket.emit('playerMove',{x:players[0].x,y:players[0].y,team:players[0].team,hasteActive:hasteActive,playerNumber:myPlayerNumber});
+  if(socket&&socket.connected){
+    socket.emit('playerMove',{x:players[0].x,y:players[0].y,team:players[0].team,hasteActive:hasteActive,playerNumber:myPlayerNumber,disabledUntil:localDisabledUntil,coreGuardUntil:coreGuardUntil,rushLockActive:rushLockActive(),pendingDebuffKick:players[0].pendingDebuffKick});
     if(isHost)socket.emit('coreSync',{x:core.x,y:core.y,vx:core.vx,vy:core.vy});
   }
   drawField();drawRemotePlayers();players.forEach(drawPlayer);drawProjectiles();drawCore();
   requestAnimationFrame(loop);
 }
 
-fullReset();requestAnimationFrame(loop);
-var socket=io();
-socket.on('connect',function(){});
-socket.on('disconnect',function(){});
-socket.on('init',function(state){
-  isHost=Object.keys(state.players).length===1;
-  var myIdx=Object.keys(state.players).indexOf(socket.id);
-  myPlayerNumber=myIdx+1;
-  players[0].team=myIdx%2===0?0:1;players[0].color=players[0].team===0?'#4a9fd4':'#e05a5a';
-  Object.keys(state.players).forEach(function(id){if(id!==socket.id)remotePlayers[id]=state.players[id];});
-  updateTeamDisplay();
-});
-socket.on('becomeHost',function(){isHost=true;});
-socket.on('coreSynced',function(data){if(!isHost){core.x=data.x;core.y=data.y;core.vx=data.vx;core.vy=data.vy;}});
-socket.on('playerJoined',function(data){remotePlayers[data.id]=data.data;updateTeamDisplay();});
-socket.on('playerLeft',function(id){delete remotePlayers[id];updateTeamDisplay();});
-socket.on('playerMoved',function(data){
-  if(data.id!==socket.id){
-    if(!remotePlayers[data.id])remotePlayers[data.id]={};
-    remotePlayers[data.id].x=data.x;remotePlayers[data.id].y=data.y;
-    remotePlayers[data.id].team=data.team;remotePlayers[data.id].hasteActive=data.hasteActive;
-    remotePlayers[data.id].playerNumber=data.playerNumber;
+function startSocketConnection(){
+  socket=io();
+  socket.on('connect',function(){});
+  socket.on('disconnect',function(){});
+  socket.on('init',function(state){
+    isHost=Object.keys(state.players).length===1;
+    var myIdx=Object.keys(state.players).indexOf(socket.id);
+    myPlayerNumber=myIdx+1;
+    players[0].team=myIdx%2===0?0:1;players[0].color=players[0].team===0?'#4a9fd4':'#e05a5a';
+    Object.keys(state.players).forEach(function(id){if(id!==socket.id)remotePlayers[id]=state.players[id];});
     updateTeamDisplay();
-  }
+  });
+  socket.on('becomeHost',function(){isHost=true;});
+  socket.on('coreSynced',function(data){if(!isHost){core.x=data.x;core.y=data.y;core.vx=data.vx;core.vy=data.vy;}});
+  socket.on('playerJoined',function(data){remotePlayers[data.id]=data.data;updateTeamDisplay();});
+  socket.on('playerLeft',function(id){delete remotePlayers[id];updateTeamDisplay();});
+  socket.on('playerMoved',function(data){
+    if(data.id!==socket.id){
+      if(!remotePlayers[data.id])remotePlayers[data.id]={};
+      remotePlayers[data.id].x=data.x;remotePlayers[data.id].y=data.y;
+      remotePlayers[data.id].team=data.team;remotePlayers[data.id].hasteActive=data.hasteActive;
+      remotePlayers[data.id].playerNumber=data.playerNumber;
+      remotePlayers[data.id].disabledUntil=data.disabledUntil||0;
+      remotePlayers[data.id].coreGuardUntil=data.coreGuardUntil||0;
+      remotePlayers[data.id].rushLockActive=!!data.rushLockActive;
+      remotePlayers[data.id].pendingDebuffKick=!!data.pendingDebuffKick;
+      updateTeamDisplay();
+    }
+  });
+  socket.on('coreKicked',function(data){
+    core.vx=data.vx;core.vy=data.vy;
+    if(data.debuffTriggered){
+      coreDebuffUntil=performance.now()+CORE_DEBUFF_MS;
+      coreDebuffTeam=typeof data.debuffTeam==='number'?data.debuffTeam:coreDebuffTeam;
+    }
+    if(coreDebuffUntil>performance.now()&&typeof data.team==='number'&&data.team!==coreDebuffTeam){
+      if(data.kickerId&&remotePlayers[data.kickerId])remotePlayers[data.kickerId].disabledUntil=performance.now()+DEBUFF_STUN_MS;
+      coreDebuffUntil=0;coreDebuffTeam=-1;
+    }
+  });
+  socket.on('paused',function(data){
+    paused=data.paused;var btn=document.getElementById('btn-pause');
+    btn.textContent=paused?'▶ PLAY':'⏸ PAUSE';btn.classList.toggle('active',paused);
+  });
+  socket.on('projectileSpawned',function(data){projectiles.push({x:data.x,y:data.y,vx:data.vx,vy:data.vy});});
+  socket.on('hasteUsed',function(data){if(remotePlayers[data.id])remotePlayers[data.id].hasteActive=true;});
+  socket.on('skillEvent',function(data){
+    if(data.type==='wall'){walls.push({x:data.x,y:data.y,w:WALL_WIDTH,h:WALL_HEIGHT,expiresAt:performance.now()+WALL_DURATION,team:data.team});}
+  });
+}
+function refreshSkillUI(){
+  document.getElementById('r-label').textContent=selectedRSkillLabel(selectedRSkill);
+  document.getElementById('shift-label').textContent=selectedShiftSkillLabel(selectedShiftSkill);
+}
+function tryAutoEnterRoom(){
+  if(!selectedRSkill||!selectedShiftSkill||socket)return;
+  document.getElementById('skill-select').style.display='none';
+  document.getElementById('msg').textContent='WASD:move  LMB:Kick  Shift:'+selectedShiftSkillLabel(selectedShiftSkill).replace(' (Shift)','')+'  R:'+selectedRSkillLabel(selectedRSkill).replace(' (R)','');
+  startSocketConnection();
+}
+document.querySelectorAll('[data-r-skill]').forEach(function(btn){
+  btn.addEventListener('click',function(){
+    selectedRSkill=btn.getAttribute('data-r-skill');
+    document.querySelectorAll('[data-r-skill]').forEach(function(el){el.classList.remove('active');});
+    btn.classList.add('active');
+    refreshSkillUI();
+    tryAutoEnterRoom();
+  });
 });
-socket.on('coreKicked',function(data){core.vx=data.vx;core.vy=data.vy;});
-socket.on('paused',function(data){
-  paused=data.paused;var btn=document.getElementById('btn-pause');
-  btn.textContent=paused?'▶ PLAY':'⏸ PAUSE';btn.classList.toggle('active',paused);
+document.querySelectorAll('[data-shift-skill]').forEach(function(btn){
+  btn.addEventListener('click',function(){
+    selectedShiftSkill=btn.getAttribute('data-shift-skill');
+    document.querySelectorAll('[data-shift-skill]').forEach(function(el){el.classList.remove('active');});
+    btn.classList.add('active');
+    refreshSkillUI();
+    tryAutoEnterRoom();
+  });
 });
-socket.on('projectileSpawned',function(data){projectiles.push({x:data.x,y:data.y,vx:data.vx,vy:data.vy});});
-socket.on('hasteUsed',function(data){if(remotePlayers[data.id])remotePlayers[data.id].hasteActive=true;});
+refreshSkillUI();
+fullReset();requestAnimationFrame(loop);
 </script>
 </body>
 </html>
