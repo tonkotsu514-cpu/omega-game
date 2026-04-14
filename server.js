@@ -38,6 +38,7 @@ io.on('connection', (socket) => {
   socket.on('pause', (data) => { gameState.paused = data.paused; io.emit('paused', data); });
   socket.on('shoot', (data) => { socket.broadcast.emit('projectileSpawned', data); });
   socket.on('haste', (data) => { socket.broadcast.emit('hasteUsed', data); });
+  socket.on('skillEvent', (data) => { socket.broadcast.emit('skillEvent', { id: socket.id, ...data }); });
   socket.on('disconnect', () => {
     console.log('切断したにゃ:', socket.id);
     delete gameState.players[socket.id];
