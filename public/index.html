@@ -167,7 +167,10 @@ function reset(){
   giantUntil=0;rushLockUntil=0;
 }
 function fullReset(){
-  players=makePlayers();core=makeCore();
+  var bots=players.filter(function(p){return !p.isPlayer;});
+  players=makePlayers();
+  bots.forEach(function(b){players.push(b);});
+  core=makeCore();
   core.vx=(Math.random()-0.5)*1.65;core.vy=(Math.random()-0.5)*1.65;projectiles=[];walls=[];
   coreDebuffUntil=0;coreDebuffTeam=-1;
   giantUntil=0;rushLockUntil=0;
@@ -831,15 +834,20 @@ function loop(timestamp){
         }
       }
       var projs=projectiles.map(function(pr){return{x:pr.x,y:pr.y,vx:pr.vx,vy:pr.vy};});
-      socket.emit('hostSimSync',{
-        core:{x:core.x,y:core.y,vx:core.vx,vy:core.vy},
-        s0:score[0],s1:score[1],
-        goalFlash:goalFlash,
-        goalTeam:goalTeam,
-        defaultAi:defaultAi,
-        bots:botList,
-        projectiles:projs
-      });
+     var now=performance.now();
+var wallList=walls.filter(function(w){return w.expiresAt>now;}).map(function(w){return{x:w.x,y:w.y,w:w.w,h:w.h,expiresAt:w.expiresAt,team:w.team};});
+socket.emit('hostSimSync',{
+  core:{x:core.x,y:core.y,vx:core.vx,vy:core.vy},
+  s0:score[0],s1:score[1],
+  goalFlash:goalFlash,
+  goalTeam:goalTeam,
+  defaultAi:defaultAi,
+  bots:botList,
+  projectiles:projs,
+  walls:wallList,
+  coreDebuffUntil:coreDebuffUntil,
+  coreDebuffTeam:coreDebuffTeam
+});
     }
   }
   drawField();drawRemotePlayers();drawRemoteBots();players.forEach(drawPlayer);drawProjectiles();drawCore();
@@ -943,6 +951,13 @@ function startSocketConnection(){
       });
     }
     if(data.projectiles)projectiles=data.projectiles.map(function(pr){return{x:pr.x,y:pr.y,vx:pr.vx,vy:pr.vy};});
+    if(data.walls){
+  walls=data.walls.map(function(w){return{x:w.x,y:w.y,w:w.w,h:w.h,expiresAt:w.expiresAt,team:w.team};});
+}
+    if(data.coreDebuffUntil!==undefined){
+  coreDebuffUntil=data.coreDebuffUntil;
+  coreDebuffTeam=data.coreDebuffTeam!=null?data.coreDebuffTeam:-1;
+}
   });
   socket.on('playerJoined',function(data){
     remotePlayers[data.id]=data.data;
