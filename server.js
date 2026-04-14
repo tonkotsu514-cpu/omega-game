@@ -1,9 +1,11 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
+
 app.use(express.static('public'));
 
 const gameState = { core: { x: 320, y: 200, vx: 0, vy: 0 }, players: {}, paused: false };
@@ -33,12 +35,21 @@ io.on('connection', (socket) => {
     }
     socket.broadcast.emit('playerMoved', { id: socket.id, ...data });
   });
-  socket.on('coreKick', (data) => { gameState.core.vx = data.vx; gameState.core.vy = data.vy; io.emit('coreKicked', data); });
-  socket.on('coreSync', (data) => { gameState.core = { ...data }; socket.broadcast.emit('coreSynced', data); });
+
+  socket.on('coreKick', (data) => {
+    gameState.core.vx = data.vx;
+    gameState.core.vy = data.vy;
+    io.emit('coreKicked', data);
+  });
+  socket.on('coreSync', (data) => {
+    gameState.core = { ...data };
+    socket.broadcast.emit('coreSynced', data);
+  });
   socket.on('pause', (data) => { gameState.paused = data.paused; io.emit('paused', data); });
   socket.on('shoot', (data) => { socket.broadcast.emit('projectileSpawned', data); });
   socket.on('haste', (data) => { socket.broadcast.emit('hasteUsed', data); });
   socket.on('skillEvent', (data) => { socket.broadcast.emit('skillEvent', { id: socket.id, ...data }); });
+
   socket.on('disconnect', () => {
     console.log('切断したにゃ:', socket.id);
     delete gameState.players[socket.id];
@@ -46,4 +57,7 @@ io.on('connection', (socket) => {
   });
 });
 
-server.listen(3000, () => { console.log('サーバー起動したにゃ！ http://localhost:3000'); });
+const PORT = Number(process.env.PORT) || 3000;
+server.listen(PORT, () => {
+  console.log(`サーバー起動したにゃ！ port:${PORT}`);
+});
