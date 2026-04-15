@@ -167,7 +167,13 @@ function reset(){
   giantUntil=0;rushLockUntil=0;
 }
 function fullReset(){
-  players=makePlayers();core=makeCore();
+  // ボットは消さずに残す
+  var savedBots=(players&&players.length)
+    ? players.filter(function(p){return !p.isPlayer;})
+    : [];
+  players=makePlayers();
+  savedBots.forEach(function(b){players.push(b);});
+  core=makeCore();
   core.vx=(Math.random()-0.5)*1.65;core.vy=(Math.random()-0.5)*1.65;projectiles=[];walls=[];
   coreDebuffUntil=0;coreDebuffTeam=-1;
   giantUntil=0;rushLockUntil=0;
@@ -452,10 +458,17 @@ document.getElementById('btn-add-red').addEventListener('click',function(){
 document.getElementById('btn-remove-ai').addEventListener('click',function(){
   if(socket&&socket.connected){
     if(isHost){
+      // netBotId があるボットを後ろから探す
       for(var i=players.length-1;i>=0;i--){
         if(!players[i].isPlayer&&players[i].netBotId){
           socket.emit('removeBot',{id:players[i].netBotId});
           break;
+        }
+      }
+      // netBotId がないローカルだけのボットも消す
+      for(var i=players.length-1;i>=0;i--){
+        if(!players[i].isPlayer&&!players[i].netBotId){
+          players.splice(i,1);break;
         }
       }
     }else if(mySpawnedBotIds.length){
@@ -838,7 +851,10 @@ function loop(timestamp){
         goalTeam:goalTeam,
         defaultAi:defaultAi,
         bots:botList,
-        projectiles:projs
+        projectiles:projs,
+        walls:walls,
+        coreDebuffUntil:coreDebuffUntil,
+        coreDebuffTeam:coreDebuffTeam
       });
     }
   }
@@ -943,6 +959,9 @@ function startSocketConnection(){
       });
     }
     if(data.projectiles)projectiles=data.projectiles.map(function(pr){return{x:pr.x,y:pr.y,vx:pr.vx,vy:pr.vy};});
+    if(data.walls)walls=data.walls;
+    if(typeof data.coreDebuffUntil==='number')coreDebuffUntil=data.coreDebuffUntil;
+    if(typeof data.coreDebuffTeam==='number')coreDebuffTeam=data.coreDebuffTeam;
   });
   socket.on('playerJoined',function(data){
     remotePlayers[data.id]=data.data;
