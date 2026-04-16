@@ -4,7 +4,7 @@ const { Server } = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, { transports: ['websocket'] });
 
 app.use(express.static('public'));
 
@@ -53,9 +53,12 @@ io.on('connection', (socket) => {
   });
 
   socket.on('hostSimSync', (data) => {
-    if (socket.id !== hostSocketId) return;
-    socket.broadcast.emit('hostSimSync', data);
+      if (socket.id !== hostSocketId) return;
+
+     Object.assign(gameState, data);
   });
+
+
 
   socket.on('removeBot', (data) => {
     if (!data || !data.id) return;
@@ -108,6 +111,25 @@ io.on('connection', (socket) => {
     io.emit('playerLeft', socket.id);
   });
 });
+
+const SERVER_TICK = 1000 / 30;
+setInterval(() => {
+  if (!gameState.core) return;
+  io.emit('hostSimSync', {
+    core: gameState.core,
+    s0: gameState.s0 || 0,
+    s1: gameState.s1 || 0,
+    goalFlash: gameState.goalFlash || 0,
+    goalTeam: gameState.goalTeam ?? -1,
+    defaultAi: gameState.defaultAi || null,
+    bots: gameState.bots ? Object.values(gameState.bots) : [],
+    projectiles: gameState.projectiles || [],
+    walls: gameState.walls || [],
+    coreDebuffUntil: gameState.coreDebuffUntil || 0,
+    coreDebuffTeam: gameState.coreDebuffTeam ?? -1,
+  });
+}, SERVER_TICK);
+
 
 const PORT = Number(process.env.PORT) || 3000;
 server.listen(PORT, () => {
