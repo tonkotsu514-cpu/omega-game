@@ -115,7 +115,7 @@ canvas { display: block; border-radius: 8px; cursor: crosshair; width: 100%; max
 <script src="/socket.io/socket.io.js"></script>
 <script>
 var W=640,H=400,GOAL_W=18,GOAL_H=180,CORE_R=14,PLAYER_R=18,FRICTION=0.992,KICK_FORCE=5.1,PLAYER_SPEED=2.4,HASTE_SPEED=3.8,KICK_RANGE=PLAYER_R+CORE_R+10,HASTE_DURATION=3000,HASTE_CD=7000,BLINK_CD=5000,GIANT_CD=6000,RUSH_LOCK_CD=7000,GIANT_DURATION=1000,RUSH_LOCK_DURATION=2000,BLINK_DISTANCE=72,RUSH_SPEED_MULT=2.3,GIANT_MULT=1.8,SHOOT_CD=5000,DEBUFF_KICK_CD=7000,WALL_CD=7000,CORE_GUARD_CD=5000,KICK_CD=900,SHOOT_FORCE=7,SHOOT_R=5,AI_HASTE_CD=13000,WALL_DURATION=4000,WALL_WIDTH=PLAYER_R*2,WALL_HEIGHT=PLAYER_R*6,CORE_DEBUFF_MS=2000,DEBUFF_STUN_MS=1000,CORE_GUARD_MS=5000,AI_SPEED_MULT=1.14,AI_ACCEL=0.5;
-var score=[0,0],keysByCode={},goalFlash=0,goalTeam=-1,mouseX=W/2,mouseY=H/2,core,players,projectiles=[],remotePlayers={},remoteBots={},isHost=false,paused=false,dragTarget=null,dragOffX=0,dragOffY=0,playerSize=1.0,lastTime=0,shiftCdLeft=0,hasteActive=false,hasteEnd=0,giantUntil=0,rushLockUntil=0,rSkillCdLeft=0,kickCdLeft=0,myPlayerNumber=1,selectedRSkill='',selectedShiftSkill='',coreDebuffUntil=0,coreDebuffTeam=-1,localDisabledUntil=0,coreGuardUntil=0,walls=[],socket=null,aiUidCounter=1,localAvatarCode='aaa',mySpawnedBotIds=[];
+var score=[0,0],keysByCode={},goalFlash=0,goalTeam=-1,mouseX=W/2,mouseY=H/2,core,players,projectiles=[],remotePlayers={},remoteBots={},isHost=false,paused=false,dragTarget=null,dragOffX=0,dragOffY=0,playerSize=1.0,lastTime=0,shiftCdLeft=0,hasteActive=false,hasteEnd=0,giantUntil=0,rushLockUntil=0,rSkillCdLeft=0,kickCdLeft=0,myPlayerNumber=1,selectedRSkill='',selectedShiftSkill='',coreDebuffUntil=0,coreDebuffTeam=-1,localDisabledUntil=0,coreGuardUntil=0,walls=[],socket=null,aiUidCounter=1,localAvatarCode='aaa',mySpawnedBotIds=[],_hostSyncTick=0,_coreBuffer=[];
 var canvas=document.getElementById('c'),ctx=canvas.getContext('2d');
 canvas.width=W;canvas.height=H;
 
@@ -798,6 +798,21 @@ function loop(timestamp){
     if(runAsHost()){
       players.forEach(function(p){updatePlayer(p,delta);});
       updateCore(delta);
+   if(!isHost&&_coreBuffer.length>=2){
+  var renderTime=performance.now()-50;
+  var older=null,newer=null;
+  for(var ci=0;ci<_coreBuffer.length-1;ci++){
+    if(_coreBuffer[ci].t<=renderTime&&_coreBuffer[ci+1].t>renderTime){
+      older=_coreBuffer[ci];newer=_coreBuffer[ci+1];break;
+    }
+  }
+  if(older&&newer){
+    var t=(renderTime-older.t)/(newer.t-older.t);
+    core.x=older.x+(newer.x-older.x)*t;
+    core.y=older.y+(newer.y-older.y)*t;
+    }
+  }
+
       updateProjectiles(delta);
     }else{
       updatePlayer(players[0],delta);
@@ -843,19 +858,27 @@ function loop(timestamp){
         }
       }
       var projs=projectiles.map(function(pr){return{x:pr.x,y:pr.y,vx:pr.vx,vy:pr.vy};});
-      socket.emit('hostSimSync',{
-        core:{x:core.x,y:core.y,vx:core.vx,vy:core.vy},
-        s0:score[0],s1:score[1],
-        goalFlash:goalFlash,
-        goalTeam:goalTeam,
-        defaultAi:defaultAi,
-        bots:botList,
-        projectiles:projs,
-        walls:walls,
-        coreDebuffUntil:coreDebuffUntil,
-        coreDebuffTeam:coreDebuffTeam
-      });
-    }
+      if(!_hostSyncTick)_hostSyncTick=0;
+        _hostSyncTick+=delta*16.67;
+      if(_hostSyncTick>=33&&isHost){ // 30fps = 33ms
+          _hostSyncTick=0;
+       socket.emit('hostSimSync',{
+       core:{x:core.x,y:core.y,vx:core.vx,vy:core.vy},
+       s0:score[0],s1:score[1],
+       goalFlash:goalFlash,
+       goalTeam:goalTeam,
+       defaultAi:defaultAi,
+       bots:botList,
+       projectiles:projs,
+       walls:walls,
+       coreDebuffUntil:coreDebuffUntil,
+       coreDebuffTeam:coreDebuffTeam
+     });
+   }
+
+
+
+
   }
   drawField();drawRemotePlayers();drawRemoteBots();players.forEach(drawPlayer);drawProjectiles();drawCore();
   requestAnimationFrame(loop);
@@ -927,7 +950,11 @@ function startSocketConnection(){
   socket.on('coreSynced',function(data){if(!isHost){core.x=data.x;core.y=data.y;core.vx=data.vx;core.vy=data.vy;}});
   socket.on('hostSimSync',function(data){
     if(isHost||!data)return;
-    if(data.core){core.x=data.core.x;core.y=data.core.y;core.vx=data.core.vx;core.vy=data.core.vy;}
+    if(data.core){
+      _coreBuffer.push({x:data.core.x,y:data.core.y,vx:data.core.vx,vy:data.core.vy,t:performance.now()});
+      if(_coreBuffer.length>12)_coreBuffer.shift();
+    }
+
     if(data.s0!==undefined){
       if(score[0]!==data.s0||score[1]!==data.s1){
         score[0]=data.s0;score[1]=data.s1;
