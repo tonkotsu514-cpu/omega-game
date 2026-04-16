@@ -4,7 +4,10 @@ const { Server } = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { transports: ['websocket'] });
+const io = new Server(server, {
+  transports: ['polling', 'websocket'],
+  cors: { origin: '*' }
+});
 
 app.use(express.static('public'));
 
