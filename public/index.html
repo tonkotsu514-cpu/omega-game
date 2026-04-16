@@ -796,28 +796,28 @@ function drawRemoteBots(){
 function loop(timestamp){
   var delta=lastTime===0?1:Math.min((timestamp-lastTime)/16.67,3);lastTime=timestamp;
   if(!paused){
-    if(runAsHost()){
+  if(runAsHost()){
       players.forEach(function(p){updatePlayer(p,delta);});
       updateCore(delta);
-   if(!isHost&&_coreBuffer.length>=2){
-  var renderTime=performance.now()-50;
-  var older=null,newer=null;
-  for(var ci=0;ci<_coreBuffer.length-1;ci++){
-    if(_coreBuffer[ci].t<=renderTime&&_coreBuffer[ci+1].t>renderTime){
-      older=_coreBuffer[ci];newer=_coreBuffer[ci+1];break;
-    }
-  }
-  if(older&&newer){
-    var t=(renderTime-older.t)/(newer.t-older.t);
-    core.x=older.x+(newer.x-older.x)*t;
-    core.y=older.y+(newer.y-older.y)*t;
-    }
-  }
-
-      updateProjectiles(delta);
     }else{
       updatePlayer(players[0],delta);
-    }
+      if(_coreBuffer.length>=2){
+        var renderTime=performance.now()-80;
+        var older=null,newer=null;
+        for(var ci=0;ci<_coreBuffer.length-1;ci++){
+          if(_coreBuffer[ci].t<=renderTime&&_coreBuffer[ci+1].t>renderTime){
+            older=_coreBuffer[ci];newer=_coreBuffer[ci+1];break;
+          }
+        }
+        if(older&&newer){
+          var t=(renderTime-older.t)/(newer.t-older.t);
+          core.x=older.x+(newer.x-older.x)*t;
+          core.y=older.y+(newer.y-older.y)*t;
+        }
+      }
+
+      updateProjectiles(delta);
+
   }
   updateCooldowns(delta);
   if(socket&&socket.connected){
