@@ -817,8 +817,8 @@ function loop(timestamp){
       }
 
       updateProjectiles(delta);
-
-  }
+        }
+      }
   updateCooldowns(delta);
   if(socket&&socket.connected){
     socket.emit('playerMove',{x:players[0].x,y:players[0].y,team:players[0].team,hasteActive:hasteActive,playerNumber:myPlayerNumber,disabledUntil:localDisabledUntil,coreGuardUntil:coreGuardUntil,rushLockActive:rushLockActive(),pendingDebuffKick:players[0].pendingDebuffKick});
