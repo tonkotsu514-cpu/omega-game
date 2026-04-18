@@ -73,7 +73,7 @@ canvas { display: block; border-radius: 8px; cursor: crosshair; width: 100%; max
   <button id="btn-add-red">＋RED AI</button>
   <button id="btn-remove-ai">－DELETE AI</button>
 </div>
-<div id="score">0 - 0</div>
+<div id="score"><span id="score-blue" style="color:#4a9fd4;">0</span> - <span id="score-red" style="color:#e05a5a;">0</span></div>
 <canvas id="c"></canvas>
 <div id="bottom-ui">
   <div class="cd-bar-wrap">
@@ -115,7 +115,7 @@ canvas { display: block; border-radius: 8px; cursor: crosshair; width: 100%; max
 </div>
 <script src="/socket.io/socket.io.js"></script>
 <script>
-var W=640,H=400,GOAL_W=18,GOAL_H=180,CORE_R=14,PLAYER_R=18,FRICTION=0.992,KICK_FORCE=5.1,PLAYER_SPEED=2.4,HASTE_SPEED=3.8,KICK_RANGE=PLAYER_R+CORE_R+10,HASTE_DURATION=3000,HASTE_CD=7000,BLINK_CD=5000,GIANT_CD=6000,RUSH_LOCK_CD=7000,GIANT_DURATION=1000,RUSH_LOCK_DURATION=2000,BLINK_DISTANCE=72,RUSH_SPEED_MULT=2.3,GIANT_MULT=1.8,SHOOT_CD=5000,DEBUFF_KICK_CD=7000,WALL_CD=7000,CORE_GUARD_CD=5000,KICK_CD=900,SHOOT_FORCE=7,SHOOT_R=5,AI_HASTE_CD=13000,WALL_DURATION=4000,WALL_WIDTH=PLAYER_R*2,WALL_HEIGHT=PLAYER_R*6,CORE_DEBUFF_MS=2000,DEBUFF_STUN_MS=1000,CORE_GUARD_MS=5000,AI_SPEED_MULT=1.14,AI_ACCEL=0.5;
+var W=640,H=400,GOAL_W=18,GOAL_H=180,CORE_R=14,PLAYER_R=18,FRICTION=0.992,KICK_FORCE=5.1,PLAYER_SPEED=2.4,HASTE_SPEED=3.8,KICK_RANGE=PLAYER_R+CORE_R+10,HASTE_DURATION=3000,HASTE_CD=7000,BLINK_CD=5000,GIANT_CD=6000,RUSH_LOCK_CD=7000,GIANT_DURATION=1000,RUSH_LOCK_DURATION=2000,BLINK_DISTANCE=72,RUSH_SPEED_MULT=2.3,GIANT_MULT=1.8,SHOOT_CD=5000,DEBUFF_KICK_CD=7000,WALL_CD=7000,CORE_GUARD_CD=5000,KICK_CD=900,SHOOT_FORCE=7,SHOOT_R=10,AI_HASTE_CD=13000,WALL_DURATION=4000,WALL_WIDTH=PLAYER_R*2,WALL_HEIGHT=PLAYER_R*6,CORE_DEBUFF_MS=2000,DEBUFF_STUN_MS=1000,CORE_GUARD_MS=5000,AI_SPEED_MULT=1.14,AI_ACCEL=0.5;
 var score=[0,0],keysByCode={},goalFlash=0,goalTeam=-1,mouseX=W/2,mouseY=H/2,core,players,projectiles=[],remotePlayers={},remoteBots={},isHost=false,paused=false,dragTarget=null,dragOffX=0,dragOffY=0,playerSize=1.0,lastTime=0,shiftCdLeft=0,hasteActive=false,hasteEnd=0,giantUntil=0,rushLockUntil=0,rSkillCdLeft=0,kickCdLeft=0,myPlayerNumber=1,selectedRSkill='',selectedShiftSkill='',coreDebuffUntil=0,coreDebuffTeam=-1,localDisabledUntil=0,coreGuardUntil=0,walls=[],socket=null,aiUidCounter=1,localAvatarCode='aaa',mySpawnedBotIds=[],_hostSyncTick=0,_coreBuffer=[];
 var canvas=document.getElementById('c'),ctx=canvas.getContext('2d');
 canvas.width=W;canvas.height=H;
@@ -140,7 +140,7 @@ function checkWin(){
   var a=score[0],b=score[1];
   if((a>=5||b>=5)&&Math.abs(a-b)>=2){
     goalFlash=180;goalTeam=a>b?0:1;
-    score=[0,0];document.getElementById('score').textContent='0 - 0';
+    score=[0,0];document.getElementById('score-blue').textContent='0';document.getElementById('score-red').textContent='0';
     fullReset();return true;
   }return false;
 }
@@ -167,9 +167,9 @@ function reset(){
   giantUntil=0;rushLockUntil=0;
 }
 function fullReset(){
-  // ボットは消さずに残す
+  // netBotId を持つボットだけ残す（デフォルトAIは含めない）
   var savedBots=(players&&players.length)
-    ? players.filter(function(p){return !p.isPlayer;})
+    ? players.filter(function(p){return !p.isPlayer&&p.netBotId;})
     : [];
   players=makePlayers();
   savedBots.forEach(function(b){players.push(b);});
@@ -440,6 +440,7 @@ document.addEventListener('mousedown',function(e){
   }
 });
 document.addEventListener('mouseup',function(){dragTarget=null;});
+document.addEventListener('contextmenu',function(e){e.preventDefault();});
 
 document.getElementById('btn-pause').addEventListener('click',function(){
   paused=!paused;this.textContent=paused?'▶ 再開':'⏸ 一時停止';this.classList.toggle('active',paused);
@@ -458,17 +459,11 @@ document.getElementById('btn-add-red').addEventListener('click',function(){
 document.getElementById('btn-remove-ai').addEventListener('click',function(){
   if(socket&&socket.connected){
     if(isHost){
-      // netBotId があるボットを後ろから探す
       for(var i=players.length-1;i>=0;i--){
         if(!players[i].isPlayer&&players[i].netBotId){
           socket.emit('removeBot',{id:players[i].netBotId});
+          players.splice(i,1);
           break;
-        }
-      }
-      // netBotId がないローカルだけのボットも消す
-      for(var i=players.length-1;i>=0;i--){
-        if(!players[i].isPlayer&&!players[i].netBotId){
-          players.splice(i,1);break;
         }
       }
     }else if(mySpawnedBotIds.length){
@@ -504,10 +499,16 @@ function aiTargetForState(ai,state){
   if(role==='defender'){
     return{x:defendLineX,y:clamp(future.y,80,H-80)};
   }
-  if(role==='support'){
-    var supportX=ai.team===0?future.x-90:future.x+90;
-    var supportY=future.y+(ai.aiUid%2===0?-56:56);
-    return{x:clamp(supportX,80,W-80),y:clamp(supportY,70,H-70)};
+   if(role==='support'){
+      // アタッカーを探してパスコースに入る
+      var attacker=players.filter(function(p){return !p.isPlayer&&p.team===ai.team&&aiRole(p)==='attacker';})[0];
+      if(attacker&&dist(ai,core)<KICK_RANGE+20){
+        // コアを持ってる時はアタッカーへ蹴る方向へ移動
+        return{x:clamp(attacker.x,80,W-80),y:clamp(attacker.y,70,H-70)};
+      }
+      // コアを積極的に取りに行く
+      return{x:clamp(future.x,80,W-80),y:clamp(future.y,70,H-70)};
+  }
   }
   if(state==='defend')return{x:defendLineX,y:future.y};
   if(state==='shoot'){
@@ -526,6 +527,7 @@ function chooseAiState(ai){
   var hasShotLane=Math.abs(core.y-H/2)<95&&Math.abs(core.x-attackGoalX)<250;
   if(role==='defender')return'defend';
   if(role==='support'&&coreNearOwnGoal)return'defend';
+  if(role==='support')return'chase';
   if(coreNearOwnGoal)return'defend';
   if(distToCore<KICK_RANGE+16&&hasShotLane)return'shoot';
   return'chase';
@@ -567,17 +569,45 @@ function aiActivateShift(ai,target){
 }
 function aiTryUseSkills(ai,target){
   var now=performance.now();
+  var role=aiRole(ai);
+  var ownGoalX=ai.team===0?GOAL_W:W-GOAL_W;
+  var attackGoalX=ai.team===0?W-GOAL_W:GOAL_W;
+  var distToCore=dist(ai,core);
+  var coreNearOwnGoal=Math.abs(core.x-ownGoalX)<140;
+  var coreNearAttackGoal=Math.abs(core.x-attackGoalX)<180;
+
   if(ai.aiShiftCdLeft<=0){
-    var urgentDefend=Math.abs(core.x-(ai.team===0?GOAL_W:W-GOAL_W))<130;
-    var closeToCore=dist(ai,core)<120;
-    if(urgentDefend||closeToCore){
+    var useShift=false;
+    if(role==='attacker'){
+      // アタッカー：コアに近い時または攻撃チャンスにShift
+      useShift=distToCore<140||coreNearAttackGoal;
+    }else if(role==='defender'){
+      // ディフェンダー：自陣ピンチの時にShift
+      useShift=coreNearOwnGoal&&distToCore<160;
+    }else{
+      // サポート：コアに近い時にShift
+      useShift=distToCore<120;
+    }
+    if(useShift){
       ai.aiShiftCdLeft=getShiftSkillCd(ai.aiShiftSkill);
       aiActivateShift(ai,target);
     }
   }
-  if(ai.aiRcdLeft<=0){
-    var canUseR=Math.random()<0.03||dist(ai,core)<KICK_RANGE+22;
-    if(canUseR&&now>ai.rushUntil){
+
+  if(ai.aiRcdLeft<=0&&now>ai.rushUntil){
+    var useR=false;
+    if(role==='attacker'){
+      // アタッカー：射程内かつゴール方向にコアがある時に積極的にR
+      useR=distToCore<KICK_RANGE+30&&coreNearAttackGoal;
+      if(!useR)useR=Math.random()<0.02;
+    }else if(role==='defender'){
+      // ディフェンダー：自陣ピンチの時にR
+      useR=coreNearOwnGoal&&distToCore<KICK_RANGE+40;
+    }else{
+      // サポート：たまにR
+      useR=Math.random()<0.015;
+    }
+    if(useR){
       ai.aiRcdLeft=getRSkillCd(ai.aiRSkill);
       activateRSkill(ai,ai.aiRSkill,true,null);
     }
@@ -641,11 +671,11 @@ function updateCore(delta){
   if(core.y+CORE_R>H){core.y=H-CORE_R;core.vy*=-0.8;}
   var gT=(H-GOAL_H)/2,gB=gT+GOAL_H;
   if(core.x-CORE_R<GOAL_W){
-    if(core.y>gT&&core.y<gB){score[1]++;goalFlash=90;goalTeam=1;document.getElementById('score').textContent=score[0]+' - '+score[1];if(checkWin())return;reset();return;}
+    if(core.y>gT&&core.y<gB){score[1]++;goalFlash=90;goalTeam=1;document.getElementById('score-blue').textContent=score[0];document.getElementById('score-red').textContent=score[1];if(checkWin())return;reset();return;}
     else{core.x=CORE_R+GOAL_W;core.vx*=-0.8;}
   }
   if(core.x+CORE_R>W-GOAL_W){
-    if(core.y>gT&&core.y<gB){score[0]++;goalFlash=90;goalTeam=0;document.getElementById('score').textContent=score[0]+' - '+score[1];if(checkWin())return;reset();return;}
+    if(core.y>gT&&core.y<gB){score[0]++;goalFlash=90;goalTeam=0;document.getElementById('score-blue').textContent=score[0];document.getElementById('score-red').textContent=score[1];if(checkWin())return;reset();return;}
     else{core.x=W-CORE_R-GOAL_W;core.vx*=-0.8;}
   }
 }
@@ -880,7 +910,6 @@ function loop(timestamp){
 
 
   }
-  }
   drawField();drawRemotePlayers();drawRemoteBots();players.forEach(drawPlayer);drawProjectiles();drawCore();
   requestAnimationFrame(loop);
 }
@@ -959,7 +988,7 @@ function startSocketConnection(){
     if(data.s0!==undefined){
       if(score[0]!==data.s0||score[1]!==data.s1){
         score[0]=data.s0;score[1]=data.s1;
-        document.getElementById('score').textContent=score[0]+' - '+score[1];
+        document.getElementById('score-blue').textContent=score[0];document.getElementById('score-red').textContent=score[1];
         players[0].x=players[0].team===0?160:W-160;
         players[0].y=H/2;players[0].vx=0;players[0].vy=0;
       }
